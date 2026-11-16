@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from pft.cli.cli import main
+from pft.cli.cli import coerce_setting, main
+from pft.errors import ConfigError
 from pft.models.config import config_path
 from pft.storage import db as db_module
 from pft.storage import repository
@@ -18,7 +19,7 @@ def add_args(*extra):
         "--amount",
         "12.50",
         "--merchant",
-        "Safeway",
+        "FreshMart",
         "--category",
         "groceries",
         *extra,
@@ -44,7 +45,7 @@ def test_add_persists_transaction(cfg, capsys):
 
     assert main(["list"]) == 0
     out = capsys.readouterr().out
-    assert "Safeway" in out
+    assert "FreshMart" in out
     assert "$12.50" in out
 
 
@@ -100,13 +101,23 @@ def test_rule_add_rejects_unsafe_expression(cfg, capsys):
     assert "error:" in capsys.readouterr().err
 
 
+def test_default_rule_listed_on_fresh_config(cfg, capsys):
+    assert main(["rule", "list"]) == 0
+    assert "Expensive grocery" in capsys.readouterr().out
+
+
 def test_rule_add_list_remove(cfg, capsys):
+    # Rule 1 ships by default, so the new rule gets id 2.
     assert main(["rule", "add", "amount > 1000", "--description", "Big"]) == 0
-    assert "Added rule 1" in capsys.readouterr().out
+    assert "Added rule 2" in capsys.readouterr().out
 
     assert main(["rule", "list"]) == 0
-    assert "Big" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Big" in out
+    assert "Expensive grocery" in out
 
+    assert main(["rule", "remove", "2"]) == 0
+    capsys.readouterr()
     assert main(["rule", "remove", "1"]) == 0
     capsys.readouterr()
 
@@ -122,8 +133,8 @@ def test_rule_remove_missing(cfg, capsys):
 def test_import_twice_is_idempotent_and_reports_flags(cfg, write_csv, capsys):
     content = (
         "kind,amount,date,merchant,category\n"
-        "expense,42.50,2026-10-02,Safeway,groceries\n"
-        "expense,42.50,2026-10-02,Safeway,groceries\n"
+        "expense,42.50,2026-10-02,FreshMart,groceries\n"
+        "expense,42.50,2026-10-02,FreshMart,groceries\n"
     )
     path = write_csv("bank.csv", content)
 
@@ -176,6 +187,35 @@ def test_unknown_category_add_fails_cleanly(cfg, capsys):
     assert "unknown category" in capsys.readouterr().err
 
 
+def test_coerce_setting():
+    assert coerce_setting("decimal_places", "3") == 3
+    assert coerce_setting("currency", "eur") == "EUR"
+    assert coerce_setting("default_categories", "a,b") == [
+        "uncategorized",
+        "a",
+        "b",
+    ]
+    with pytest.raises(ConfigError):
+        coerce_setting("decimal_places", "many")
+    with pytest.raises(ConfigError):
+        coerce_setting("unknown_key", "x")
+
+
+def test_blank_merchant_is_a_clean_error(cfg, capsys):
+    assert main(["add", "--kind", "expense", "--amount", "5", "--merchant", "   "]) == 2
+    captured = capsys.readouterr()
+    assert "error:" in captured.err
+    assert "merchant" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_blank_category_is_a_clean_error(cfg, capsys):
+    assert main(add_args("--category", "   ")) == 2
+    captured = capsys.readouterr()
+    assert "category" in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_config_show_and_set(cfg, capsys):
     assert main(["config", "set", "currency_symbol", "€"]) == 0
     capsys.readouterr()
@@ -185,6 +225,24 @@ def test_config_show_and_set(cfg, capsys):
 
     assert main(["config", "set", "decimal_places", "9"]) == 2
     assert "error:" in capsys.readouterr().err
+
+
+def test_decimal_places_change_refused_with_existing_data(cfg, capsys):
+    assert main(add_args()) == 0
+    capsys.readouterr()
+
+    assert main(["config", "set", "decimal_places", "0"]) == 2
+    err = capsys.readouterr().err
+    assert "reinterpreted" in err
+
+    # The setting is unchanged.
+    assert main(["config", "show"]) == 0
+    assert '"decimal_places": 2' in capsys.readouterr().out
+
+
+def test_decimal_places_change_allowed_on_empty_db(cfg, capsys):
+    assert main(["config", "set", "decimal_places", "0"]) == 0
+    assert "decimal_places = 0" in capsys.readouterr().out
 
 
 def test_help_commands(capsys):
@@ -211,6 +269,88 @@ def test_group_without_subcommand_prints_its_help(cfg, capsys):
     assert "show" in capsys.readouterr().out
     assert main(["rule"]) == 0
     assert "add" in capsys.readouterr().out
+
+
+def test_edit_transaction(cfg, capsys):
+    assert main(add_args()) == 0  # #1: $12.50 FreshMart groceries
+    capsys.readouterr()
+
+    assert main(
+        ["edit", "1", "--amount", "15.75", "--merchant", "Taco Casa", "--category", "dining"]
+    ) == 0
+    assert "Updated transaction #1" in capsys.readouterr().out
+
+    assert main(["list"]) == 0
+    out = capsys.readouterr().out
+    assert "Taco Casa" in out
+    assert "$15.75" in out
+    assert "FreshMart" not in out
+
+
+def test_edit_requires_at_least_one_field(cfg, capsys):
+    assert main(add_args()) == 0
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as excinfo:
+        main(["edit", "1"])
+    assert excinfo.value.code == 2
+
+
+def test_edit_duplicate_prompt_abort_keeps_original(cfg, monkeypatch, capsys):
+    assert main(add_args("--merchant", "Alpha")) == 0  # #1
+    assert main(add_args("--merchant", "Beta")) == 0   # #2
+    capsys.readouterr()
+
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+    assert main(["edit", "2", "--merchant", "Alpha"]) == 1
+    assert "Aborted" in capsys.readouterr().out
+
+    conn = open_conn(cfg)
+    try:
+        assert repository.get_transaction(conn, 2).merchant == "Beta"
+    finally:
+        conn.close()
+
+
+def test_edit_duplicate_prompt_confirm_saves(cfg, monkeypatch, capsys):
+    assert main(add_args("--merchant", "Alpha")) == 0
+    assert main(add_args("--merchant", "Beta")) == 0
+    capsys.readouterr()
+
+    monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+    assert main(["edit", "2", "--merchant", "Alpha"]) == 0
+    capsys.readouterr()
+
+    assert main(["list"]) == 0
+    assert "Beta" not in capsys.readouterr().out
+
+
+def test_delete_with_confirmation(cfg, monkeypatch, capsys):
+    assert main(add_args()) == 0
+    capsys.readouterr()
+
+    monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+    assert main(["delete", "1"]) == 0
+    assert "Deleted transaction #1" in capsys.readouterr().out
+
+    assert main(["list"]) == 0
+    assert "No transactions found" in capsys.readouterr().out
+
+
+def test_delete_abort_keeps_row(cfg, monkeypatch, capsys):
+    assert main(add_args()) == 0
+    capsys.readouterr()
+
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+    assert main(["delete", "1"]) == 1
+    capsys.readouterr()
+
+    assert main(["list"]) == 0
+    assert "FreshMart" in capsys.readouterr().out
+
+
+def test_delete_unknown_id(cfg, capsys):
+    assert main(["delete", "999"]) == 2
+    assert "not found" in capsys.readouterr().err
 
 
 def test_init_with_seed_csv(pft_home, write_csv, monkeypatch, capsys):

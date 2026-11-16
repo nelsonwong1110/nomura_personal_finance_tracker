@@ -13,13 +13,13 @@ from typing import List, Type
 
 from pft.models.flag import Flag
 from pft.models.transaction import Transaction
+from pft.storage import repository
 
 
 class IntegrityCheck(ABC):
     """A data-integrity check over a transaction and its stored peers."""
 
     name: str = ""
-    description: str = ""
 
     @abstractmethod
     def check(self, conn: sqlite3.Connection, tx: Transaction) -> List[Flag]:
@@ -39,21 +39,12 @@ class CheckDuplicateRule(IntegrityCheck):
     """
 
     name = "duplicate"
-    description = (
-        "Same kind, amount, date and merchant appears more than once "
-        "(possible double entry)"
-    )
 
     def check(self, conn: sqlite3.Connection, tx: Transaction) -> List[Flag]:
-        rows = conn.execute(
-            """
-            SELECT id FROM transactions
-            WHERE kind = ? AND amount_cents = ? AND date = ? AND merchant = ?
-            ORDER BY id
-            """,
-            (tx.kind.value, tx.amount_cents, tx.date, tx.merchant.strip()),
-        ).fetchall()
-        others = [row["id"] for row in rows if row["id"] != tx.id]
+        ids = repository.find_duplicate_ids(
+            conn, tx.kind, tx.amount_cents, tx.date, tx.merchant
+        )
+        others = [tx_id for tx_id in ids if tx_id != tx.id]
         if not others:
             return []
         ids = ([tx.id] if tx.id is not None else []) + others

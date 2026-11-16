@@ -16,15 +16,33 @@ from __future__ import annotations
 import ast
 import operator
 from decimal import Decimal
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from pft.errors import ExpressionError
+from pft.models.category import DEFAULT_CATEGORY
 from pft.models.config import Config
 from pft.models.flag import Flag
+from pft.models.kind import Kind
 from pft.models.rule import Rule
 from pft.models.transaction import Transaction
 
-ALLOWED_FIELDS = ("kind", "amount", "date", "merchant", "category")
+
+def _resolve_amount(tx: Transaction, cfg: Config) -> Decimal:
+    scale = Decimal(10) ** cfg.decimal_places
+    return Decimal(tx.amount_cents) / scale
+
+
+# The single extension point for rule fields: add one entry here to expose a new
+# field to expressions; ALLOWED_FIELDS and values_for derive from this registry.
+FIELD_RESOLVERS: Dict[str, Callable[[Transaction, Config], Any]] = {
+    "kind": lambda tx, cfg: tx.kind.value,
+    "amount": _resolve_amount,
+    "date": lambda tx, cfg: tx.date,
+    "merchant": lambda tx, cfg: tx.merchant,
+    "category": lambda tx, cfg: tx.category,
+}
+
+ALLOWED_FIELDS = tuple(FIELD_RESOLVERS.keys())
 
 _ALLOWED_NODES = (
     ast.Expression,
@@ -118,20 +136,15 @@ def values_for(tx: Transaction, cfg: Config) -> Dict[str, Any]:
     ``amount`` is exposed in currency units as a Decimal (e.g. 12.50), not in
     minor units, so expressions read naturally.
     """
-    scale = Decimal(10) ** cfg.decimal_places
-    return {
-        "kind": tx.kind.value,
-        "amount": Decimal(tx.amount_cents) / scale,
-        "date": tx.date,
-        "merchant": tx.merchant,
-        "category": tx.category,
-    }
+    return {field: resolver(tx, cfg) for field, resolver in FIELD_RESOLVERS.items()}
 
 
 def _eval(node: ast.AST, values: Dict[str, Any]) -> Any:
     if isinstance(node, ast.Expression):
         return _eval(node.body, values)
     if isinstance(node, ast.Constant):
+        if isinstance(node.value, float):
+            return Decimal(str(node.value))
         return node.value
     if isinstance(node, ast.Name):
         return values[node.id]
@@ -185,13 +198,14 @@ def evaluate(tree: ast.Expression, values: Dict[str, Any]) -> bool:
 
 def sample_values(cfg: Config) -> Dict[str, Any]:
     """Representative values used to sanity-check a new expression."""
-    return {
-        "kind": "expense",
-        "amount": Decimal(10),
-        "date": "2026-01-01",
-        "merchant": "sample",
-        "category": "uncategorized",
-    }
+    sample = Transaction(
+        kind=Kind.EXPENSE,
+        amount_cents=1000,
+        date="2026-01-01",
+        merchant="sample",
+        category=DEFAULT_CATEGORY,
+    )
+    return values_for(sample, cfg)
 
 
 def validate_rule_expression(expression: str, cfg: Config) -> None:

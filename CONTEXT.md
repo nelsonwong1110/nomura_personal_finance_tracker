@@ -19,7 +19,7 @@ A monetary value held as integer minor units (cents), formatted with the configu
 _Avoid_: money, price, value
 
 **Merchant**:
-The counterparty label of a transaction (e.g. Safeway).
+The counterparty label of a transaction (e.g. FreshMart).
 _Avoid_: payee, vendor, description
 
 **Category**:
@@ -27,7 +27,7 @@ A classification of a transaction (e.g. groceries, rent), chosen from a seeded, 
 _Avoid_: tag, label
 
 **Provenance**:
-The `(source, ref)` pair recording where a record came from — the CSV file and a content hash plus occurrence number, or `manual` for hand entry. Provenance is the basis of import idempotency and is not user-visible.
+The `(source, ref)` pair recording where a record came from — the CSV file's path and a hash of the row's content plus its occurrence number, or `manual` for hand entry. Provenance is the basis of import idempotency and is not user-visible.
 _Avoid_: origin, fingerprint
 
 **Duplicate**:

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+DEFAULT_CATEGORY = "uncategorized"
+
 
 @dataclass(frozen=True)
 class Category:

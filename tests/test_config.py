@@ -7,14 +7,7 @@ from pathlib import Path
 import pytest
 
 from pft.errors import ConfigError
-from pft.models.config import (
-    Config,
-    coerce_setting,
-    config_path,
-    default_config,
-    load_config,
-    save_config,
-)
+from pft.models.config import Config, config_path, load_config, save_config
 
 
 def test_missing_config_returns_none(pft_home):
@@ -56,26 +49,27 @@ def test_invalid_rules_rejected():
 
 
 def test_resolved_db_path_expands_home(pft_home):
-    config = default_config()
+    config = Config()
     config.db_path = "~/data/pft.db"
     assert config.resolved_db_path == str(Path.home() / "data" / "pft.db")
-
-
-def test_coerce_setting():
-    assert coerce_setting("decimal_places", "3") == 3
-    assert coerce_setting("currency", "eur") == "EUR"
-    assert coerce_setting("default_categories", "a,b") == [
-        "uncategorized",
-        "a",
-        "b",
-    ]
-    with pytest.raises(ConfigError):
-        coerce_setting("decimal_places", "many")
-    with pytest.raises(ConfigError):
-        coerce_setting("unknown_key", "x")
 
 
 def test_config_set_db_path_survives_save(cfg):
     cfg.db_path = "/tmp/elsewhere.db"
     save_config(cfg)
     assert load_config().db_path == "/tmp/elsewhere.db"
+
+
+def test_default_config_ships_one_rule():
+    config = Config()
+    assert len(config.rules) == 1
+    assert config.rules[0].description == "Expensive grocery"
+
+
+def test_missing_rules_key_gets_default():
+    assert len(Config.from_dict({}).rules) == 1
+
+
+def test_explicit_empty_rules_are_not_reseeded():
+    """Removing every rule must survive a reload."""
+    assert Config.from_dict({"rules": []}).rules == []

@@ -39,6 +39,8 @@ for usage of any command; every command also supports `--help`.
 | `pft import FILE` | Bulk import from CSV (see below) |
 | `pft list [--from D] [--to D] [--category C] [--uncategorized]` | List transactions, newest first |
 | `pft categorize ID CATEGORY` | Reassign one transaction's category |
+| `pft edit ID [--kind ...] [--amount A] [--date D] [--merchant M] [--category C]` | Change fields of a transaction (at least one flag required; unspecified fields unchanged; same flag-check + prompt as `add`) |
+| `pft delete ID` | Remove a transaction (asks for confirmation first) |
 | `pft category add NAME` / `pft category list` | Extend / list categories |
 | `pft rule add "EXPRESSION" --description TEXT` | Add a flag-only rule |
 | `pft rule list` / `pft rule remove ID` | Manage rules |
@@ -59,18 +61,21 @@ are ignored.
 
 ```csv
 kind,amount,date,merchant,category
-expense,42.50,2026-10-02,Safeway,groceries
-income,3200.00,2026-10-01,Acme Payroll,income
+expense,42.50,2026-10-02,FreshMart,groceries
+income,3200.00,2026-10-01,Northwind Payroll,income
 ```
 
 Import is **all-or-nothing**: an invalid row aborts the whole file and names the
 row, so you never get a half-imported file. A `category` in the CSV must already
 exist (`pft category add ...`).
 
-**Re-importing is safe.** Every row's provenance (file name + a hash of its
-content and occurrence number) is recorded. Importing the same file again skips
-everything; appending rows imports only the new ones:
-`Imported 0 transaction(s), skipped 6 already imported.`
+**Re-importing is safe.** Every row's provenance (the file's path + a hash of
+its content and occurrence number) is recorded. Importing the same file again
+skips everything; appending rows imports only the new ones:
+`Imported 0 transaction(s), skipped 6 already imported.` The source is the file's
+path (not its basename), so two files that happen to share a name in different
+folders are distinct. Trade-off: moving or renaming a file gives its rows new
+provenance, so they would import again.
 
 Identical rows are *not* collapsed: two genuinely identical purchases in one
 file are kept as two records (their occurrence numbers differ). Whether they are
@@ -83,6 +88,10 @@ Rules live in the config file and are managed with `pft rule ...`. A rule is:
 ```json
 {"id": "1", "description": "Expensive grocery", "expression": "(category == 'groceries') and amount >= 1000"}
 ```
+
+**One rule ships with a fresh setup** so the engine is demonstrable immediately:
+`1 — Expensive grocery — (category == 'groceries') and amount >= 1000`
+(removing it with `pft rule remove 1` is not undone by a restart). Add your own:
 
 ```bash
 python3 -m pft rule add "(category == 'groceries') and amount >= 1000" --description "Expensive grocery"
@@ -100,7 +109,8 @@ Expressions use Python boolean syntax over five fields:
 
 Supported: `and` / `or` / `not`, comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`),
 membership (`category in ('groceries', 'dining')`), arithmetic, number and string
-literals.
+literals. Numeric literals are evaluated as exact decimals, so
+`amount == 12.30` matches a $12.30 transaction.
 
 **Safety:** expressions are parsed with `ast.parse` and evaluated by a
 whitelist walker; `eval()` is never used. Calls, attribute access, imports and
@@ -110,12 +120,12 @@ must never be able to execute code.
 ### Flags happen at entry time
 
 There is no separate "run the rules" command. Both subsystems — the duplicate
-integrity check and your rules — run whenever a transaction is created:
+integrity check and your rules — run where data enters the tracker:
 
-- `pft add`: flags are printed and you are asked **“Save anyway? [y/N]”**. No
-  aborts the save (nothing is written); yes saves it.
+- `pft add` and `pft edit`: flags are printed and you are asked
+  **“Save anyway? [y/N]”**. No aborts (nothing is written); yes saves it.
 - `pft import`: rows are ingested idempotently, then any flags for the newly
-  created rows are reported. Import never prompts, so bulk loads stay scriptable.
+  created rows are reported. Import never prompts, so bulk imports stay scriptable.
 
 ### The duplicate check
 
@@ -132,29 +142,32 @@ a row must never hide a double entry.
   currency conversion.
 - Amounts are stored as integer minor units; input like `"$12.50"`, `"12.5"` and
   `"1,234.56"` is accepted, values with more than the configured decimal places
-  are rejected, and amounts must be positive.
+  are rejected, and amounts must be positive. Changing `decimal_places` is
+  refused while transactions exist, because stored amounts are minor units and
+  would be reinterpreted.
 - Dates are `YYYY-MM-DD`; `add` defaults to today. The config `date_format` only
   affects display.
 - Categories are seeded from config and extensible; an unknown category is a
   clean error (foreign keys are enforced), never a silently-created typo.
 - `merchant` is a free-text label; no merchant normalization.
 - Summary month-over-month rows are derived from transaction dates.
-- Not implemented (out of scope for the exercise): editing/deleting
-  transactions, budgets, multi-user, export.
+- Not implemented (out of scope for the exercise): budgets, multi-user, export.
 
 ## Design notes
 
 ```
 pft/
-├── models/     pure data: Kind, Amount, Transaction, Category, Rule, Config, Flag
-├── storage/    SQLite schema (storage/db.py) and repository (storage/repository.py)
-├── services/   logic: rules (ast evaluator), integrity, importer, summary, init wizard
+├── models/     domain data and config: Kind, Amount, Transaction, Category, Rule, Flag, Config
+├── storage/    SQLite schema (storage/db.py) and repository: all transaction/category SQL (storage/repository.py)
+├── services/   logic: rules (ast evaluator), integrity, flags, prompting, importer, summary, init wizard
 └── cli/        argparse command tree (cli/cli.py)
 ```
 
-Dependencies flow one way: `cli → services → storage → models`. The rule engine's
-extension points are the `ALLOWED_FIELDS` whitelist (new fields) and
-`INTEGRITY_CHECKS` (new integrity checks).
+Dependencies flow one way: `cli → services → storage → models`. All SQL over
+transactions and categories lives in the repository (including the duplicate-match
+query and the summary aggregates). The rule engine's extension point is the
+`FIELD_RESOLVERS` registry in `pft/services/rules.py` (a new rule field), and
+`INTEGRITY_CHECKS` in `pft/services/integrity.py` (a new integrity check).
 
 Data lives in a SQLite file created at runtime (default `~/.pft/pft.db`; config
 at `~/.pft/config.json`). Nothing binary is part of the source; the database is
@@ -166,8 +179,10 @@ user data. Set `PFT_HOME=/some/dir` to use an isolated config/database directory
 python3 -m pytest tests/ -v
 ```
 
-105 tests: amount parsing/formatting, config validation, repository behaviour,
-CSV import (idempotency, all-or-nothing errors, duplicate preservation), summary
-aggregation and filters, safe expression evaluation (including rejection of
-unsafe constructs), duplicate detection, and CLI integration tests that drive
-`main()` end-to-end against temporary databases.
+129 tests: amount parsing/formatting, config validation (including the shipped
+rule), repository behaviour
+(including edit and delete), CSV import (idempotency, all-or-nothing errors,
+duplicate preservation), summary aggregation and filters, safe expression
+evaluation (including rejection of unsafe constructs), duplicate detection,
+clean errors for invalid input, and CLI integration tests that drive `main()`
+end-to-end against temporary databases.

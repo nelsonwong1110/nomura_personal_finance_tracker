@@ -10,23 +10,10 @@ from __future__ import annotations
 from typing import Callable
 
 from pft.errors import ConfigError
-from pft.models.config import (
-    Config,
-    config_path,
-    default_config,
-    load_config,
-    save_config,
-)
+from pft.models.config import Config, config_path, load_config, save_config
 from pft.services.importer import import_csv
+from pft.services.prompting import ask as prompt_ask
 from pft.storage import db
-
-
-def _ask(prompt: str, default: str = "") -> str:
-    try:
-        answer = input(f"{prompt} [{default}]: ").strip()
-    except EOFError:
-        return default
-    return answer or default
 
 
 def run_init(
@@ -35,9 +22,9 @@ def run_init(
     ask_seed: bool = True,
 ) -> Config:
     """Run the setup wizard. Existing config values (if any) are the defaults."""
-    ask = ask or _ask
+    ask = ask or prompt_ask
     target = config_path()
-    existing = load_config(target) or default_config()
+    existing = load_config(target) or Config()
 
     out("Personal Finance Tracker — setup")
     out("Press Enter to accept the value in brackets.")

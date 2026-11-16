@@ -10,9 +10,9 @@ from pft.storage import repository
 
 HEADER = "kind,amount,date,merchant,category\n"
 ROWS = (
-    "expense,42.50,2026-10-02,Safeway,groceries\n"
-    "income,3200.00,2026-10-01,Acme Corp,income\n"
-    "expense,15.75,2026-10-03,Chipotle,dining\n"
+    "expense,42.50,2026-10-02,FreshMart,groceries\n"
+    "income,3200.00,2026-10-01,Northwind Corp,income\n"
+    "expense,15.75,2026-10-03,Taco Casa,dining\n"
 )
 
 
@@ -48,8 +48,8 @@ def test_identical_rows_in_one_file_are_kept(write_csv, conn, cfg):
     """Two genuinely identical purchases must not collapse into one."""
     content = (
         HEADER
-        + "expense,42.50,2026-10-02,Safeway,groceries\n"
-        + "expense,42.50,2026-10-02,Safeway,groceries\n"
+        + "expense,42.50,2026-10-02,FreshMart,groceries\n"
+        + "expense,42.50,2026-10-02,FreshMart,groceries\n"
     )
     path = write_csv("bank.csv", content)
     result = import_csv(conn, path, cfg)
@@ -65,6 +65,24 @@ def test_same_content_from_different_file_is_imported(write_csv, conn, cfg):
     result = import_csv(conn, second, cfg)
     assert result.imported == 3
     assert repository.count_transactions(conn) == 6
+
+
+def test_same_basename_in_different_directories_do_not_collide(tmp_path, conn, cfg):
+    """Provenance is the file path, so two files named statement.csv in
+    different directories are distinct sources."""
+    jan = tmp_path / "jan" / "statement.csv"
+    feb = tmp_path / "feb" / "statement.csv"
+    jan.parent.mkdir()
+    feb.parent.mkdir()
+    shared = "expense,10.00,2026-01-02,Alpha,dining\n"
+    jan.write_text(HEADER + shared + "expense,5.00,2026-01-03,Beta,dining\n", encoding="utf-8")
+    feb.write_text(HEADER + shared + "expense,7.00,2026-01-04,Gamma,dining\n", encoding="utf-8")
+
+    assert import_csv(conn, str(jan), cfg).imported == 2
+    result = import_csv(conn, str(feb), cfg)
+    # Both rows import: the identical row is a distinct record from a distinct file.
+    assert result.imported == 2
+    assert repository.count_transactions(conn) == 4
 
 
 def test_missing_required_column(write_csv, conn, cfg):

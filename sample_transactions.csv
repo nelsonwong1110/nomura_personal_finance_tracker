@@ -1,0 +1,7 @@
+kind,amount,date,merchant,category
+expense,42.50,2026-10-02,FreshMart,groceries
+expense,1800.00,2026-10-01,Sunset Apartments,rent
+income,3200.00,2026-10-01,Northwind Payroll,income
+expense,15.75,2026-10-03,Taco Casa,dining
+expense,60.00,2026-10-05,Metro Mobile,utilities
+expense,42.50,2026-10-02,FreshMart,groceries

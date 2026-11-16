@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from enum import Enum
 
+from pft.errors import ValidationError
+
 
 class Kind(str, Enum):
-    """Direction of a transaction's money flow. Amounts are always positive."""
+    """Whether a transaction is income or an expense; amounts are always positive."""
 
     INCOME = "income"
     EXPENSE = "expense"
@@ -17,5 +19,7 @@ class Kind(str, Enum):
         try:
             return cls(str(value).strip().lower())
         except ValueError:
-            allowed = ", ".join(k.value for k in cls)
-            raise ValueError(f"kind must be one of: {allowed} (got {value!r})") from None
+            allowed = ", ".join(k for k in cls)
+            raise ValidationError(
+                f"kind must be one of: {allowed} (got {value!r})"
+            ) from None

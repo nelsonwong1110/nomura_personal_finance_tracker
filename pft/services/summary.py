@@ -1,15 +1,15 @@
-"""Summary: derived views over transactions (totals, by category, by month)."""
+"""Summary: derived views over transactions (totals, by category, by month).
+
+All SQL lives in the repository; this service shapes the rows into dataclasses.
+"""
 
 from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
-_BASE = """
-FROM transactions t
-JOIN categories c ON c.id = t.category_id
-"""
+from pft.storage import repository
 
 
 @dataclass(frozen=True)
@@ -39,23 +39,6 @@ class Summary:
         return self.total_income_cents - self.total_spend_cents
 
 
-def _where(
-    date_from: Optional[str], date_to: Optional[str], category: Optional[str]
-) -> Tuple[str, List[object]]:
-    clauses: List[str] = []
-    params: List[object] = []
-    if date_from:
-        clauses.append("t.date >= ?")
-        params.append(date_from)
-    if date_to:
-        clauses.append("t.date <= ?")
-        params.append(date_to)
-    if category:
-        clauses.append("c.name = ?")
-        params.append(category)
-    return (" WHERE " + " AND ".join(clauses)) if clauses else "", params
-
-
 def build_summary(
     conn: sqlite3.Connection,
     date_from: Optional[str] = None,
@@ -63,72 +46,31 @@ def build_summary(
     category: Optional[str] = None,
 ) -> Summary:
     """Aggregate totals, category breakdowns and month-over-month spend."""
-    where, params = _where(date_from, date_to, category)
+    totals = repository.summary_totals(conn, date_from, date_to, category)
 
-    totals = conn.execute(
-        f"""
-        SELECT
-            COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount_cents END), 0) AS income,
-            COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount_cents END), 0) AS spend,
-            COUNT(*) AS n
-        """
-        + _BASE
-        + where,
-        params,
-    ).fetchone()
-
-    category_rows = conn.execute(
-        """
-        SELECT c.name AS name, t.kind AS kind, SUM(t.amount_cents) AS total
-        """
-        + _BASE
-        + where
-        + """
-        GROUP BY c.name, t.kind
-        ORDER BY total DESC, c.name ASC
-        """,
-        params,
-    ).fetchall()
-
+    category_rows = repository.summary_by_category(conn, date_from, date_to, category)
     spend_by_category = [
-        CategoryTotal(name=row["name"], total_cents=int(row["total"]))
-        for row in category_rows
-        if row["kind"] == "expense"
+        CategoryTotal(name=name, total_cents=total)
+        for name, kind, total in category_rows
+        if kind == "expense"
     ]
     income_by_category = [
-        CategoryTotal(name=row["name"], total_cents=int(row["total"]))
-        for row in category_rows
-        if row["kind"] == "income"
+        CategoryTotal(name=name, total_cents=total)
+        for name, kind, total in category_rows
+        if kind == "income"
     ]
 
-    month_rows = conn.execute(
-        """
-        SELECT substr(t.date, 1, 7) AS month,
-               COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount_cents END), 0) AS income,
-               COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount_cents END), 0) AS spend
-        """
-        + _BASE
-        + where
-        + """
-        GROUP BY month
-        ORDER BY month ASC
-        """,
-        params,
-    ).fetchall()
-
     monthly = [
-        MonthTotal(
-            month=row["month"],
-            income_cents=int(row["income"]),
-            spend_cents=int(row["spend"]),
+        MonthTotal(month=month, income_cents=income, spend_cents=spend)
+        for month, income, spend in repository.summary_monthly(
+            conn, date_from, date_to, category
         )
-        for row in month_rows
     ]
 
     return Summary(
-        total_income_cents=int(totals["income"]),
-        total_spend_cents=int(totals["spend"]),
-        transaction_count=int(totals["n"]),
+        total_income_cents=totals["income"],
+        total_spend_cents=totals["spend"],
+        transaction_count=totals["count"],
         spend_by_category=spend_by_category,
         income_by_category=income_by_category,
         monthly=monthly,

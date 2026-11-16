@@ -1,8 +1,8 @@
 """Command-line interface for the Personal Finance Tracker.
 
-All write paths check integrity + rules at entry time: ``add`` prompts before
+Flags run where data enters the tracker: ``add`` and ``edit`` prompt before
 saving a flagged transaction; ``import`` reports flags after ingesting. There is
-no separate "run rules" command — flags happen where data enters the tracker.
+no separate "run rules" command.
 """
 
 from __future__ import annotations
@@ -13,25 +13,30 @@ import sqlite3
 import sys
 import uuid
 from dataclasses import replace
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from pft.errors import NotFoundError, PftError
+from pft.errors import ConfigError, NotFoundError, PftError
 from pft.models.amount import format_amount, parse_amount
+from pft.models.category import DEFAULT_CATEGORY
 from pft.models.config import (
     Config,
-    coerce_setting,
     load_config,
     save_config,
+    validate_categories,
+    validate_date_format,
+    validate_decimal_places,
 )
 from pft.models.dates import format_date, today_iso, validate_iso_date
 from pft.models.flag import Flag
 from pft.models.kind import Kind
 from pft.models.rule import Rule
 from pft.models.transaction import Transaction
-from pft.services import integrity, rules
+from pft.services import rules
 from pft.services import summary as summary_service
+from pft.services.flags import collect_flags
 from pft.services.importer import import_csv
 from pft.services.init import run_init
+from pft.services.prompting import ask, confirm
 from pft.storage import db, repository
 
 PROG = "pft"
@@ -42,20 +47,45 @@ PROG = "pft"
 # ---------------------------------------------------------------------------
 
 
-def _ask(prompt: str, default: str = "") -> str:
+def _coerce_decimal_places(raw_value: str) -> int:
     try:
-        answer = input(f"{prompt} [{default}]: ").strip()
-    except EOFError:
-        return default
-    return answer or default
+        return validate_decimal_places(int(raw_value))
+    except ValueError:
+        raise ConfigError("decimal_places must be an integer between 0 and 4") from None
 
 
-def _confirm(prompt: str) -> bool:
-    try:
-        answer = input(f"{prompt} ").strip().lower()
-    except EOFError:
-        return False
-    return answer in ("y", "yes")
+def _coerce_currency(raw_value: str) -> str:
+    if not raw_value.strip():
+        raise ConfigError("currency must be a non-empty string")
+    return raw_value.strip().upper()
+
+
+def _coerce_db_path(raw_value: str) -> str:
+    if not raw_value.strip():
+        raise ConfigError("db_path must be a non-empty string")
+    return raw_value.strip()
+
+
+_COERCERS: Dict[str, Callable[[str], Any]] = {
+    "db_path": _coerce_db_path,
+    "currency": _coerce_currency,
+    "currency_symbol": lambda raw_value: raw_value,
+    "decimal_places": _coerce_decimal_places,
+    "date_format": validate_date_format,
+    "default_categories": validate_categories,
+}
+
+SETTABLE_KEYS = set(_COERCERS)
+
+
+def coerce_setting(key: str, raw_value: str) -> Any:
+    """Validate and coerce a ``config set <key> <value>`` argument."""
+    coercer = _COERCERS.get(key)
+    if coercer is None:
+        raise ConfigError(
+            f"unknown setting {key!r}; settable keys: {', '.join(sorted(SETTABLE_KEYS))}"
+        )
+    return coercer(raw_value)
 
 
 def _ensure_config() -> Config:
@@ -96,6 +126,21 @@ def _print_flags(flags: List[Flag], tx: Optional[Transaction] = None) -> None:
     for flag in flags:
         prefix = f"#{tx.id} " if tx is not None and tx.id is not None else ""
         print(f"  flag [{flag.source}] {prefix}{flag.message}")
+
+
+def _confirm_flagged(flags: List[Flag], tx: Transaction, prompt: str) -> bool:
+    """Print flags for a candidate and ask whether to proceed."""
+    _print_flags(flags, tx)
+    return confirm(prompt)
+
+
+def _print_category_table(title: str, amount_header: str, items: list, cfg: Config) -> None:
+    print()
+    print(title)
+    _print_table(
+        ["CATEGORY", amount_header],
+        [[item.name, _fmt(cfg, item.total_cents)] for item in items],
+    )
 
 
 def _date_range(args) -> Tuple[Optional[str], Optional[str]]:
@@ -144,9 +189,32 @@ def cmd_config_show(args) -> int:
     return 0
 
 
+def _guard_decimal_places_change(
+    cfg: Config, new_value: int, db_override: Optional[str] = None
+) -> None:
+    """Refuse to reinterpret stored minor units by changing decimal places."""
+    if new_value == cfg.decimal_places:
+        return
+    db_path = db_override or cfg.resolved_db_path
+    conn = db.connect(db_path, cfg.default_categories)
+    try:
+        existing = repository.count_transactions(conn)
+    finally:
+        conn.close()
+    if existing:
+        raise ConfigError(
+            f"cannot change decimal_places from {cfg.decimal_places} to {new_value} "
+            f"while {existing} transaction(s) exist: stored amounts are in minor "
+            f"units and would be reinterpreted. Keep the current value, or switch "
+            f"to a fresh database first (pft config set db_path PATH)."
+        )
+
+
 def cmd_config_set(args) -> int:
     cfg = _ensure_config()
     value = coerce_setting(args.key, args.value)
+    if args.key == "decimal_places":
+        _guard_decimal_places_change(cfg, value, getattr(args, "db", None))
     setattr(cfg, args.key, value)
     save_config(cfg)
     shown = value if not isinstance(value, list) else ", ".join(value)
@@ -159,25 +227,20 @@ def cmd_config_set(args) -> int:
 def cmd_add(args) -> int:
     cfg, conn = _open(args)
     try:
-        kind_raw = args.kind if args.kind is not None else _ask("Kind (income/expense)", "expense")
-        try:
-            kind = Kind.parse(kind_raw)
-        except ValueError as exc:
-            raise PftError(str(exc)) from None
-        amount_raw = args.amount if args.amount is not None else _ask("Amount")
-        merchant_raw = args.merchant if args.merchant is not None else _ask("Merchant")
+        kind_raw = args.kind if args.kind is not None else ask("Kind (income/expense)", "expense")
+        kind = Kind.parse(kind_raw)
+        amount_raw = args.amount if args.amount is not None else ask("Amount")
+        merchant_raw = args.merchant if args.merchant is not None else ask("Merchant")
         date_raw = args.date if args.date is not None else today_iso()
-        category = args.category if args.category is not None else "uncategorized"
+        category = args.category if args.category is not None else DEFAULT_CATEGORY
 
         tx = _build_transaction(kind, amount_raw, date_raw, merchant_raw, category, cfg)
         repository.category_id(conn, category)
 
-        flags = integrity.run_checks(conn, tx) + rules.run_rules(cfg.rules, tx, cfg)
-        if flags:
-            _print_flags(flags)
-            if not _confirm("Save anyway? [y/N]"):
-                print("Aborted — nothing was saved.")
-                return 1
+        flags = collect_flags(conn, cfg, tx)
+        if flags and not _confirm_flagged(flags, tx, "Save anyway? [y/N]"):
+            print("Aborted — nothing was saved.")
+            return 1
 
         saved = repository.add_transaction(
             conn, replace(tx, source="manual", ref=uuid.uuid4().hex)
@@ -202,7 +265,7 @@ def cmd_import(args) -> int:
             tx = repository.get_transaction(conn, tx_id)
             if tx is None:
                 continue
-            flags = integrity.run_checks(conn, tx) + rules.run_rules(cfg.rules, tx, cfg)
+            flags = collect_flags(conn, cfg, tx)
             if not flags:
                 continue
             unique = []
@@ -258,6 +321,80 @@ def cmd_categorize(args) -> int:
     try:
         tx = repository.categorize(conn, args.id, args.category)
         print(f"Transaction #{tx.id} categorized as {tx.category!r}.")
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_edit(args) -> int:
+    cfg, conn = _open(args)
+    try:
+        current = repository.get_transaction(conn, args.id)
+        if current is None:
+            raise NotFoundError(f"transaction #{args.id} not found")
+        provided = (args.kind, args.amount, args.date, args.merchant, args.category)
+        if all(value is None for value in provided):
+            args._parser.error(
+                "provide at least one of --kind, --amount, --date, --merchant, --category"
+            )
+
+        kind = Kind.parse(args.kind) if args.kind is not None else current.kind
+        amount_cents = (
+            parse_amount(args.amount, cfg.decimal_places)
+            if args.amount is not None
+            else current.amount_cents
+        )
+        date = validate_iso_date(args.date) if args.date is not None else current.date
+        merchant = (
+            args.merchant.strip() if args.merchant is not None else current.merchant
+        )
+        category = args.category if args.category is not None else current.category
+        repository.category_id(conn, category)  # validate before prompting
+
+        candidate = replace(
+            current,
+            kind=kind,
+            amount_cents=amount_cents,
+            date=date,
+            merchant=merchant,
+            category=category,
+        )
+        flags = collect_flags(conn, cfg, candidate)
+        if flags and not _confirm_flagged(flags, candidate, "Save changes anyway? [y/N]"):
+            print("Aborted — nothing was changed.")
+            return 1
+
+        updated = repository.edit_transaction(
+            conn,
+            current.id,
+            kind=kind,
+            amount_cents=amount_cents,
+            date=date,
+            merchant=merchant,
+            category=category,
+        )
+        print(f"Updated transaction #{updated.id}.")
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_delete(args) -> int:
+    cfg, conn = _open(args)
+    try:
+        current = repository.get_transaction(conn, args.id)
+        if current is None:
+            raise NotFoundError(f"transaction #{args.id} not found")
+        print(
+            f"Deleting #{current.id}: {current.kind.value} "
+            f"{_fmt(cfg, current.amount_cents)} {current.date} "
+            f"{current.merchant} ({current.category})"
+        )
+        if not confirm("Delete? [y/N]"):
+            print("Aborted — nothing was deleted.")
+            return 1
+        repository.delete_transaction(conn, args.id)
+        print(f"Deleted transaction #{args.id}.")
         return 0
     finally:
         conn.close()
@@ -347,25 +484,9 @@ def cmd_summary(args) -> int:
         print(f"Net:    {_fmt(cfg, result.net_cents)}")
 
         if result.spend_by_category:
-            print()
-            print("Spend by category:")
-            _print_table(
-                ["CATEGORY", "SPEND"],
-                [
-                    [item.name, _fmt(cfg, item.total_cents)]
-                    for item in result.spend_by_category
-                ],
-            )
+            _print_category_table("Spend by category:", "SPEND", result.spend_by_category, cfg)
         if result.income_by_category:
-            print()
-            print("Income by category:")
-            _print_table(
-                ["CATEGORY", "INCOME"],
-                [
-                    [item.name, _fmt(cfg, item.total_cents)]
-                    for item in result.income_by_category
-                ],
-            )
+            _print_category_table("Income by category:", "INCOME", result.income_by_category, cfg)
         if result.monthly:
             print()
             print("Monthly:")
@@ -417,7 +538,7 @@ def build_parser() -> Tuple[argparse.ArgumentParser, Dict[str, argparse.Argument
     p = add("add", "record a single transaction")
     p.add_argument("--kind", choices=["income", "expense"], help="transaction kind")
     p.add_argument("--amount", help='amount, e.g. "12.50"')
-    p.add_argument("--merchant", help="counterparty (e.g. Safeway)")
+    p.add_argument("--merchant", help="counterparty (e.g. FreshMart)")
     p.add_argument("--category", help="category name (default: uncategorized)")
     p.add_argument("--date", help="ISO date YYYY-MM-DD (default: today)")
     p.set_defaults(handler=cmd_add)
@@ -437,6 +558,19 @@ def build_parser() -> Tuple[argparse.ArgumentParser, Dict[str, argparse.Argument
     p.add_argument("id", type=int, metavar="ID")
     p.add_argument("category", help="category name")
     p.set_defaults(handler=cmd_categorize)
+
+    p = add("edit", "change a transaction's fields")
+    p.add_argument("id", type=int, metavar="ID")
+    p.add_argument("--kind", choices=["income", "expense"])
+    p.add_argument("--amount", help='amount, e.g. "12.50"')
+    p.add_argument("--date", help="ISO date YYYY-MM-DD")
+    p.add_argument("--merchant", help="counterparty (e.g. FreshMart)")
+    p.add_argument("--category", help="category name")
+    p.set_defaults(handler=cmd_edit)
+
+    p = add("delete", "remove a transaction")
+    p.add_argument("id", type=int, metavar="ID")
+    p.set_defaults(handler=cmd_delete)
 
     p = add("category", "manage categories")
     csub = p.add_subparsers(dest="category_command", metavar="<add|list>")

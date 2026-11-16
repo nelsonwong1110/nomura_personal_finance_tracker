@@ -15,6 +15,10 @@ class ConfigError(PftError):
     """Invalid or unusable configuration."""
 
 
+class ValidationError(PftError):
+    """A domain value (merchant, category, kind) failed validation."""
+
+
 class AmountError(PftError):
     """Invalid monetary amount."""
 

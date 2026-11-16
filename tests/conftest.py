@@ -1,10 +1,13 @@
-"""Shared fixtures: an isolated config directory, config, database and CSV helper."""
+"""Shared fixtures: an isolated config directory, config, database, CSV helper
+and the common transaction factory."""
 
 from __future__ import annotations
 
 import pytest
 
-from pft.models.config import default_config, save_config
+from pft.models.config import Config, save_config
+from pft.models.kind import Kind
+from pft.models.transaction import Transaction
 from pft.storage import db as db_module
 
 
@@ -19,10 +22,28 @@ def pft_home(tmp_path, monkeypatch):
 @pytest.fixture
 def cfg(pft_home):
     """A saved default config inside the isolated PFT_HOME."""
-    config = default_config()
+    config = Config()
     config.db_path = str(pft_home / "pft.db")
     save_config(config)
     return config
+
+
+@pytest.fixture
+def make_tx():
+    """Factory for transactions with sensible defaults, override any field."""
+
+    def _make(**overrides):
+        values = dict(
+            kind=Kind.EXPENSE,
+            amount_cents=1250,
+            date="2026-10-02",
+            merchant="FreshMart",
+            category="groceries",
+        )
+        values.update(overrides)
+        return Transaction(**values)
+
+    return _make
 
 
 @pytest.fixture

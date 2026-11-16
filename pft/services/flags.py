@@ -1,0 +1,19 @@
+"""Entry-time flag collection: integrity checks plus configured field rules."""
+
+from __future__ import annotations
+
+import sqlite3
+from typing import List
+
+from pft.models.config import Config
+from pft.models.flag import Flag
+from pft.models.transaction import Transaction
+from pft.services.integrity import run_checks
+from pft.services.rules import run_rules
+
+
+def collect_flags(
+    conn: sqlite3.Connection, cfg: Config, tx: Transaction
+) -> List[Flag]:
+    """All flags for one transaction: integrity checks and field rules."""
+    return run_checks(conn, tx) + run_rules(cfg.rules, tx, cfg)

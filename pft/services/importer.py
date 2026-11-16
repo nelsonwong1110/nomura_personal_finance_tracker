@@ -1,10 +1,17 @@
 """CSV import with provenance-keyed idempotency.
 
-Each row's provenance is ``(source=file name, ref=hash of the row's content plus
+Each row's provenance is ``(source=file path, ref=hash of the row's content plus
 its occurrence number within the file)``. Re-importing the same file therefore
-skips everything; appending rows imports only the new ones; and *content-identical*
-rows are still kept as distinct records (occurrence numbers differ), so genuine
-duplicate purchases are preserved and can be flagged by the integrity check.
+skips everything; appending rows imports only the new ones (the path stays the
+same, and only new refs appear); and *content-identical* rows are still kept as
+distinct records (occurrence numbers differ), so genuine duplicate purchases are
+preserved and can be flagged by the integrity check.
+
+The source is the resolved absolute path rather than the basename, so two
+different files that happen to share a name do not collide. The trade-off: moving
+or renaming a file gives its rows new provenance, so they would be imported again.
+(Content hashes are deliberately not used for the source: appending a row would
+change the hash and re-import the entire file as duplicates.)
 
 Import is all-or-nothing: any invalid row aborts the whole file with a message
 naming the row, so a typo never leaves a half-imported file behind.
@@ -21,6 +28,7 @@ from typing import Dict, List
 
 from pft.errors import CsvImportError, PftError
 from pft.models.amount import parse_amount
+from pft.models.category import DEFAULT_CATEGORY
 from pft.models.config import Config
 from pft.models.dates import validate_iso_date
 from pft.models.kind import Kind
@@ -80,10 +88,10 @@ def _row_to_transaction(
 
     try:
         kind = Kind.parse(_cell(row, index, "kind"))
-    except ValueError as exc:
+    except PftError as exc:
         raise _row_error(lineno, str(exc)) from None
 
-    category = _cell(row, index, "category") or "uncategorized"
+    category = _cell(row, index, "category") or DEFAULT_CATEGORY
     if not repository.category_exists(conn, category):
         raise _row_error(
             lineno,
@@ -100,8 +108,6 @@ def _row_to_transaction(
             category=category,
         )
     except PftError as exc:
-        raise _row_error(lineno, str(exc)) from None
-    except ValueError as exc:
         raise _row_error(lineno, str(exc)) from None
 
 
@@ -143,7 +149,7 @@ def import_csv(conn: sqlite3.Connection, path: str, cfg: Config) -> ImportResult
             staged.append(
                 replace(
                     tx,
-                    source=csv_path.name,
+                    source=str(csv_path.resolve()),
                     ref=_make_ref(canonical, occurrences[canonical]),
                 )
             )

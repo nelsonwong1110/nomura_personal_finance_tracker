@@ -14,10 +14,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from pft.errors import ConfigError
+from pft.models.category import DEFAULT_CATEGORY
 from pft.models.rule import Rule
 
 DEFAULT_CATEGORIES = [
-    "uncategorized",
+    DEFAULT_CATEGORY,
     "groceries",
     "rent",
     "dining",
@@ -27,7 +28,15 @@ DEFAULT_CATEGORIES = [
     "income",
 ]
 
-REQUIRED_CATEGORY = "uncategorized"
+# One rule ships with a fresh setup so the rule engine is demonstrable
+# immediately. The exercise's banned "$50" example is deliberately not used.
+DEFAULT_RULES = [
+    Rule(
+        id="1",
+        description="Expensive grocery",
+        expression="(category == 'groceries') and amount >= 1000",
+    ),
+]
 
 
 def config_dir() -> Path:
@@ -46,7 +55,7 @@ def default_db_path() -> str:
     return str(config_dir() / "pft.db")
 
 
-def _validate_decimal_places(value: Any) -> int:
+def validate_decimal_places(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ConfigError("decimal_places must be an integer between 0 and 4")
     if not 0 <= value <= 4:
@@ -54,7 +63,7 @@ def _validate_decimal_places(value: Any) -> int:
     return value
 
 
-def _validate_date_format(value: Any) -> str:
+def validate_date_format(value: Any) -> str:
     if not isinstance(value, str) or not value:
         raise ConfigError("date_format must be a non-empty string")
     try:
@@ -64,7 +73,7 @@ def _validate_date_format(value: Any) -> str:
     return value
 
 
-def _validate_categories(value: Any) -> List[str]:
+def validate_categories(value: Any) -> List[str]:
     if isinstance(value, str):
         value = [part.strip() for part in value.split(",")]
     if not isinstance(value, list):
@@ -76,8 +85,8 @@ def _validate_categories(value: Any) -> List[str]:
             names.append(name)
     if not names:
         raise ConfigError("default_categories must not be empty")
-    if REQUIRED_CATEGORY not in names:
-        names.insert(0, REQUIRED_CATEGORY)
+    if DEFAULT_CATEGORY not in names:
+        names.insert(0, DEFAULT_CATEGORY)
     return names
 
 
@@ -93,7 +102,7 @@ class Config:
     default_categories: List[str] = field(
         default_factory=lambda: list(DEFAULT_CATEGORIES)
     )
-    rules: List[Rule] = field(default_factory=list)
+    rules: List[Rule] = field(default_factory=lambda: list(DEFAULT_RULES))
 
     @property
     def resolved_db_path(self) -> str:
@@ -125,27 +134,27 @@ class Config:
         symbol = data.get("currency_symbol", defaults.currency_symbol)
         if not isinstance(symbol, str):
             raise ConfigError("currency_symbol must be a string")
-        rules = [Rule.from_dict(item) for item in data.get("rules", [])]
+        # Defaults apply only when the key is absent; an explicit empty list
+        # means the user removed every rule and must not be re-seeded.
+        rules = [
+            Rule.from_dict(item)
+            for item in data.get("rules", [rule.to_dict() for rule in DEFAULT_RULES])
+        ]
         return cls(
             db_path=db_path,
             currency=currency.strip().upper(),
             currency_symbol=symbol,
-            decimal_places=_validate_decimal_places(
+            decimal_places=validate_decimal_places(
                 data.get("decimal_places", defaults.decimal_places)
             ),
-            date_format=_validate_date_format(
+            date_format=validate_date_format(
                 data.get("date_format", defaults.date_format)
             ),
-            default_categories=_validate_categories(
+            default_categories=validate_categories(
                 data.get("default_categories", list(DEFAULT_CATEGORIES))
             ),
             rules=rules,
         )
-
-
-def default_config() -> Config:
-    """A Config with all defaults."""
-    return Config()
 
 
 def load_config(path: Optional[Path] = None) -> Optional[Config]:
@@ -169,39 +178,3 @@ def save_config(config: Config, path: Optional[Path] = None) -> Path:
         encoding="utf-8",
     )
     return target
-
-
-SETTABLE_KEYS = {
-    "db_path",
-    "currency",
-    "currency_symbol",
-    "decimal_places",
-    "date_format",
-    "default_categories",
-}
-
-
-def coerce_setting(key: str, raw_value: str) -> Any:
-    """Validate and coerce a ``config set <key> <value>`` argument."""
-    if key not in SETTABLE_KEYS:
-        raise ConfigError(
-            f"unknown setting {key!r}; settable keys: {', '.join(sorted(SETTABLE_KEYS))}"
-        )
-    if key == "decimal_places":
-        try:
-            return _validate_decimal_places(int(raw_value))
-        except ValueError:
-            raise ConfigError("decimal_places must be an integer between 0 and 4") from None
-    if key == "default_categories":
-        return _validate_categories(raw_value)
-    if key == "date_format":
-        return _validate_date_format(raw_value)
-    if key == "currency":
-        if not raw_value.strip():
-            raise ConfigError("currency must be a non-empty string")
-        return raw_value.strip().upper()
-    if key == "db_path":
-        if not raw_value.strip():
-            raise ConfigError("db_path must be a non-empty string")
-        return raw_value.strip()
-    return raw_value
