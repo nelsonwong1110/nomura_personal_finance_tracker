@@ -19,6 +19,7 @@ from decimal import Decimal
 from typing import Any, Callable, Dict, List
 
 from pft.errors import ExpressionError
+from pft.models.amount import DECIMAL_PLACES
 from pft.models.category import DEFAULT_CATEGORY
 from pft.models.config import Config
 from pft.models.flag import Flag
@@ -28,7 +29,7 @@ from pft.models.transaction import Transaction
 
 
 def _resolve_amount(tx: Transaction, cfg: Config) -> Decimal:
-    scale = Decimal(10) ** cfg.decimal_places
+    scale = Decimal(10) ** DECIMAL_PLACES
     return Decimal(tx.amount_cents) / scale
 
 

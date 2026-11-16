@@ -80,7 +80,6 @@ def _row_to_transaction(
     row: List[str],
     index: Dict[str, int],
     lineno: int,
-    cfg: Config,
 ) -> Transaction:
     for column in REQUIRED_COLUMNS:
         if not _cell(row, index, column):
@@ -102,7 +101,7 @@ def _row_to_transaction(
     try:
         return Transaction(
             kind=kind,
-            amount_cents=parse_amount(_cell(row, index, "amount"), cfg.decimal_places),
+            amount_cents=parse_amount(_cell(row, index, "amount")),
             date=validate_iso_date(_cell(row, index, "date")),
             merchant=_cell(row, index, "merchant"),
             category=category,
@@ -143,7 +142,7 @@ def import_csv(conn: sqlite3.Connection, path: str, cfg: Config) -> ImportResult
         for lineno, row in enumerate(reader, start=2):
             if not row or all(not cell.strip() for cell in row):
                 continue
-            tx = _row_to_transaction(conn, row, index, lineno, cfg)
+            tx = _row_to_transaction(conn, row, index, lineno)
             canonical = _canonical(tx)
             occurrences[canonical] = occurrences.get(canonical, 0) + 1
             staged.append(

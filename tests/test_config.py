@@ -18,7 +18,6 @@ def test_save_and_load_roundtrip(cfg):
     loaded = load_config()
     assert loaded is not None
     assert loaded.db_path == cfg.db_path
-    assert loaded.decimal_places == 2
     assert loaded.default_categories == cfg.default_categories
 
 
@@ -36,13 +35,6 @@ def test_default_categories_accept_comma_string():
     assert config.default_categories == ["uncategorized", "a", "b"]
 
 
-def test_invalid_decimal_places_rejected():
-    with pytest.raises(ConfigError):
-        Config.from_dict({"decimal_places": 9})
-    with pytest.raises(ConfigError):
-        Config.from_dict({"decimal_places": "two"})
-
-
 def test_invalid_rules_rejected():
     with pytest.raises(ConfigError):
         Config.from_dict({"rules": [{"id": "1"}]})
@@ -58,24 +50,6 @@ def test_config_set_db_path_survives_save(cfg):
     cfg.db_path = "/tmp/elsewhere.db"
     save_config(cfg)
     assert load_config().db_path == "/tmp/elsewhere.db"
-
-
-def test_set_value_updates_ordinary_keys():
-    config = Config()
-    config.set_value("currency", "eur")
-    assert config.currency == "eur"
-
-
-def test_set_value_same_decimal_places_is_noop():
-    config = Config()
-    config.set_value("decimal_places", 2)
-    assert config.decimal_places == 2
-
-
-def test_set_value_refuses_decimal_places_change():
-    config = Config()
-    with pytest.raises(ConfigError, match="fixed at setup"):
-        config.set_value("decimal_places", 3)
 
 
 def test_default_config_ships_one_rule():

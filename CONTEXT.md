@@ -15,7 +15,7 @@ Whether a transaction is income or an expense; the amount itself is always posit
 _Avoid_: type, direction
 
 **Amount**:
-A monetary value held as integer minor units (cents), formatted with the configured currency symbol and decimal places.
+A monetary value held as integer minor units (cents), formatted with the configured currency symbol and two fixed decimal places.
 _Avoid_: money, price, value
 
 **Merchant**:
@@ -59,9 +59,9 @@ Ingesting transactions from a CSV file; rows already ingested under the same pro
 _Avoid_: load, upload
 
 **Config**:
-User preferences (database path, currency, symbol, decimal places, date format, default categories, rules) stored as JSON in the config directory. `decimal_places` is fixed at setup: later changes are refused because stored minor units would be reinterpreted.
+User preferences (database path, currency, symbol, date format, default categories, rules) stored as JSON in the config directory.
 _Avoid_: settings file
 
 **Init**:
-The guided first-run setup that writes the config, creates and seeds the database, and optionally imports a seed CSV. Re-runs reuse existing values as defaults and report `decimal_places` instead of re-prompting.
+The guided first-run setup that writes the config, creates and seeds the database, and optionally imports a seed CSV. Re-runs reuse existing values as defaults.
 _Avoid_: bootstrap, install

@@ -24,7 +24,6 @@ from pft.models.config import (
     save_config,
     validate_categories,
     validate_date_format,
-    validate_decimal_places,
 )
 from pft.models.dates import format_date, today_iso, validate_iso_date
 from pft.models.flag import Flag
@@ -49,13 +48,6 @@ PROG = "pft"
 # ---------------------------------------------------------------------------
 
 
-def _coerce_decimal_places(raw_value: str) -> int:
-    try:
-        return validate_decimal_places(int(raw_value))
-    except ValueError:
-        raise ConfigError("decimal_places must be an integer between 0 and 4") from None
-
-
 def _coerce_currency(raw_value: str) -> str:
     if not raw_value.strip():
         raise ConfigError("currency must be a non-empty string")
@@ -72,7 +64,6 @@ _COERCERS: Dict[str, Callable[[str], Any]] = {
     "db_path": _coerce_db_path,
     "currency": _coerce_currency,
     "currency_symbol": lambda raw_value: raw_value,
-    "decimal_places": _coerce_decimal_places,
     "date_format": validate_date_format,
     "default_categories": validate_categories,
 }
@@ -111,7 +102,7 @@ def _open(args) -> Tuple[Config, sqlite3.Connection]:
 
 
 def _fmt(cfg: Config, cents: int) -> str:
-    return format_amount(cents, cfg.currency_symbol, cfg.decimal_places)
+    return format_amount(cents, cfg.currency_symbol)
 
 
 def _print_table(headers: List[str], rows: List[List[str]]) -> None:
@@ -159,11 +150,11 @@ def _transaction_filter(args, uncategorized: bool = False) -> TransactionFilter:
 
 
 def _build_transaction(
-    kind: Kind, amount_raw: str, date_raw: str, merchant: str, category: str, cfg: Config
+    kind: Kind, amount_raw: str, date_raw: str, merchant: str, category: str
 ) -> Transaction:
     return Transaction(
         kind=kind,
-        amount_cents=parse_amount(amount_raw, cfg.decimal_places),
+        amount_cents=parse_amount(amount_raw),
         date=validate_iso_date(date_raw),
         merchant=merchant.strip(),
         category=category,
@@ -199,7 +190,7 @@ def cmd_config_show(args) -> int:
 def cmd_config_set(args) -> int:
     cfg = _ensure_config()
     value = coerce_setting(args.key, args.value)
-    cfg.set_value(args.key, value)
+    setattr(cfg, args.key, value)
     save_config(cfg)
     shown = value if not isinstance(value, list) else ", ".join(value)
     print(f"{args.key} = {shown}")
@@ -218,7 +209,7 @@ def cmd_add(args) -> int:
         date_raw = args.date if args.date is not None else today_iso()
         category = args.category if args.category is not None else DEFAULT_CATEGORY
 
-        tx = _build_transaction(kind, amount_raw, date_raw, merchant_raw, category, cfg)
+        tx = _build_transaction(kind, amount_raw, date_raw, merchant_raw, category)
         repository.category_id(conn, category)
 
         flags = collect_flags(conn, cfg, tx)
@@ -318,7 +309,7 @@ def cmd_edit(args) -> int:
 
         kind = Kind.parse(args.kind) if args.kind is not None else current.kind
         amount_cents = (
-            parse_amount(args.amount, cfg.decimal_places)
+            parse_amount(args.amount)
             if args.amount is not None
             else current.amount_cents
         )

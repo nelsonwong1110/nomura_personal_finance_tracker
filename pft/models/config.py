@@ -38,9 +38,6 @@ DEFAULT_RULES = [
     ),
 ]
 
-# Keys fixed at setup: changing them would reinterpret already-stored data.
-IMMUTABLE_KEYS = frozenset({"decimal_places"})
-
 
 def config_dir() -> Path:
     """Directory holding config.json and, by default, the database."""
@@ -56,14 +53,6 @@ def config_path() -> Path:
 def default_db_path() -> str:
     """Default SQLite database path (inside the config directory)."""
     return str(config_dir() / "pft.db")
-
-
-def validate_decimal_places(value: Any) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ConfigError("decimal_places must be an integer between 0 and 4")
-    if not 0 <= value <= 4:
-        raise ConfigError("decimal_places must be between 0 and 4")
-    return value
 
 
 def validate_date_format(value: Any) -> str:
@@ -100,7 +89,6 @@ class Config:
     db_path: str = field(default_factory=default_db_path)
     currency: str = "USD"
     currency_symbol: str = "$"
-    decimal_places: int = 2
     date_format: str = "%Y-%m-%d"
     default_categories: List[str] = field(
         default_factory=lambda: list(DEFAULT_CATEGORIES)
@@ -117,22 +105,10 @@ class Config:
             "db_path": self.db_path,
             "currency": self.currency,
             "currency_symbol": self.currency_symbol,
-            "decimal_places": self.decimal_places,
             "date_format": self.date_format,
             "default_categories": list(self.default_categories),
             "rules": [rule.to_dict() for rule in self.rules],
         }
-
-    def set_value(self, key: str, value: Any) -> None:
-        """Set a config value; immutable keys accept only their current value."""
-        if key in IMMUTABLE_KEYS:
-            if value != getattr(self, key):
-                raise ConfigError(
-                    f"{key} is fixed at setup and cannot be changed: stored amounts "
-                    f"are in minor units and would be reinterpreted"
-                )
-            return
-        setattr(self, key, value)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Config":
@@ -158,9 +134,6 @@ class Config:
             db_path=db_path,
             currency=currency.strip().upper(),
             currency_symbol=symbol,
-            decimal_places=validate_decimal_places(
-                data.get("decimal_places", defaults.decimal_places)
-            ),
             date_format=validate_date_format(
                 data.get("date_format", defaults.date_format)
             ),

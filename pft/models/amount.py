@@ -2,7 +2,7 @@
 
 Amounts are stored as integers to avoid floating point drift. Parsing accepts
 display strings like "$12.50" or "12.5"; formatting uses the configured
-currency symbol and decimal places.
+currency symbol and a fixed two decimal places.
 """
 
 from __future__ import annotations
@@ -13,18 +13,16 @@ from pft.errors import AmountError
 
 CURRENCY_SYMBOLS = ("$", "€", "£", "¥", "₹", "₩", "₽")
 
+# Major-currency convention: two decimal places (cents).
+DECIMAL_PLACES = 2
 
-def parse_amount(text: str, decimal_places: int = 2) -> int:
+
+def parse_amount(text: str) -> int:
     """Parse a user-supplied amount string into integer minor units.
 
     Accepts an optional currency symbol and thousands separators. Rejects
     zero, negative, non-numeric and over-precise values.
     """
-    if not isinstance(decimal_places, int) or isinstance(decimal_places, bool):
-        raise AmountError("decimal places must be an integer")
-    if not 0 <= decimal_places <= 4:
-        raise AmountError("decimal places must be between 0 and 4")
-
     raw = str(text).strip()
     if not raw:
         raise AmountError("amount is empty")
@@ -45,18 +43,18 @@ def parse_amount(text: str, decimal_places: int = 2) -> int:
     if value <= 0:
         raise AmountError(f"amount must be positive (got {text!r})")
 
-    scale = Decimal(10) ** decimal_places
+    scale = Decimal(10) ** DECIMAL_PLACES
     scaled = value * scale
     if scaled != scaled.to_integral_value():
         raise AmountError(
-            f"amount {text!r} has more than {decimal_places} decimal place(s)"
+            f"amount {text!r} has more than {DECIMAL_PLACES} decimal place(s)"
         )
     return int(scaled)
 
 
-def format_amount(minor_units: int, symbol: str = "$", decimal_places: int = 2) -> str:
+def format_amount(minor_units: int, symbol: str = "$") -> str:
     """Format integer minor units for display, e.g. 1250 -> '$12.50'."""
-    scale = Decimal(10) ** decimal_places
+    scale = Decimal(10) ** DECIMAL_PLACES
     value = Decimal(minor_units) / scale
     sign = "-" if value < 0 else ""
-    return f"{sign}{symbol}{abs(value):,.{decimal_places}f}"
+    return f"{sign}{symbol}{abs(value):,.{DECIMAL_PLACES}f}"

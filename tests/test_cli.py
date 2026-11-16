@@ -6,7 +6,7 @@ import pytest
 
 from pft.cli.cli import coerce_setting, main
 from pft.errors import ConfigError
-from pft.models.config import config_path, load_config
+from pft.models.config import config_path
 from pft.storage import db as db_module
 from pft.storage import repository
 
@@ -188,7 +188,6 @@ def test_unknown_category_add_fails_cleanly(cfg, capsys):
 
 
 def test_coerce_setting():
-    assert coerce_setting("decimal_places", "3") == 3
     assert coerce_setting("currency", "eur") == "EUR"
     assert coerce_setting("default_categories", "a,b") == [
         "uncategorized",
@@ -196,7 +195,7 @@ def test_coerce_setting():
         "b",
     ]
     with pytest.raises(ConfigError):
-        coerce_setting("decimal_places", "many")
+        coerce_setting("decimal_places", "3")
     with pytest.raises(ConfigError):
         coerce_setting("unknown_key", "x")
 
@@ -223,40 +222,10 @@ def test_config_show_and_set(cfg, capsys):
     assert main(["config", "show"]) == 0
     assert "€" in capsys.readouterr().out
 
-    assert main(["config", "set", "decimal_places", "9"]) == 2
-    assert "error:" in capsys.readouterr().err
-
-
-def test_decimal_places_change_always_refused(cfg, capsys):
-    assert main(["config", "set", "decimal_places", "0"]) == 2
+    assert main(["config", "set", "decimal_places", "2"]) == 2
     err = capsys.readouterr().err
-    assert "reinterpreted" in err
-
-    # The setting is unchanged.
-    assert main(["config", "show"]) == 0
-    assert '"decimal_places": 2' in capsys.readouterr().out
-
-
-def test_decimal_places_same_value_is_noop(cfg, capsys):
-    assert main(["config", "set", "decimal_places", "2"]) == 0
-    assert "decimal_places = 2" in capsys.readouterr().out
-
-
-def test_init_rerun_keeps_decimal_places(pft_home, monkeypatch, capsys):
-    attempts = {"n": 0}
-
-    def fake_input(prompt=""):
-        if "Decimal places" in prompt:
-            attempts["n"] += 1
-            return "3" if attempts["n"] == 1 else "0"
-        return ""
-
-    monkeypatch.setattr("builtins.input", fake_input)
-    assert main(["init"]) == 0
-    assert main(["init"]) == 0
-    out = capsys.readouterr().out
-    assert "Decimal places (fixed at setup): 3" in out
-    assert load_config().decimal_places == 3
+    assert "error:" in err
+    assert "unknown setting" in err
 
 
 def test_help_commands(capsys):

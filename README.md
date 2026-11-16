@@ -32,9 +32,9 @@ for usage of any command; every command also supports `--help`.
 | Command | What it does |
 |---|---|
 | `pft` | First run triggers setup; afterwards prints the command list |
-| `pft init [--csv FILE]` | Re-run setup (existing values become defaults; `decimal_places` is fixed at setup and not re-prompted); optionally seed a CSV |
+| `pft init [--csv FILE]` | Re-run setup (existing values become defaults); optionally seed a CSV |
 | `pft config show` | Print the configuration as JSON |
-| `pft config set KEY VALUE` | Change a setting: `db_path`, `currency`, `currency_symbol`, `decimal_places` (fixed at setup — later changes are refused), `date_format`, `default_categories` |
+| `pft config set KEY VALUE` | Change a setting: `db_path`, `currency`, `currency_symbol`, `date_format`, `default_categories` |
 | `pft add [--kind income\|expense] [--amount A] [--merchant M] [--category C] [--date YYYY-MM-DD]` | Record one transaction; missing kind/amount/merchant are prompted for |
 | `pft import FILE` | Bulk import from CSV (see below) |
 | `pft list [--from D] [--to D] [--category C] [--uncategorized]` | List transactions, newest first |
@@ -140,11 +140,10 @@ a row must never hide a double entry.
 
 - Single user, single currency (set in config); no accounts, transfers, or
   currency conversion.
-- Amounts are stored as integer minor units; input like `"$12.50"`, `"12.5"` and
-  `"1,234.56"` is accepted, values with more than the configured decimal places
-  are rejected, and amounts must be positive. `decimal_places` is fixed at
-  first setup and cannot be changed afterwards: stored amounts are minor units
-  and would be reinterpreted.
+- Amounts are stored as integer minor units (cents). Two decimal places are
+  assumed — the convention for major currencies. Input like `"$12.50"`, `"12.5"`
+  and `"1,234.56"` is accepted, values with more than two decimal places are
+  rejected, and amounts must be positive.
 - Dates are `YYYY-MM-DD`; `add` defaults to today. The config `date_format` only
   affects display.
 - Categories are seeded from config and extensible; an unknown category is a
@@ -179,7 +178,7 @@ user data. Set `PFT_HOME=/some/dir` to use an isolated config/database directory
 python3 -m pytest tests/ -v
 ```
 
-133 tests: amount parsing/formatting, config validation (including the shipped
+124 tests: amount parsing/formatting, config validation (including the shipped
 rule), repository behaviour
 (including edit and delete), CSV import (idempotency, all-or-nothing errors,
 duplicate preservation), summary aggregation and filters, safe expression

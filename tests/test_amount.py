@@ -20,12 +20,7 @@ from pft.models.amount import format_amount, parse_amount
     ],
 )
 def test_parse_accepts_display_amounts(text, expected):
-    assert parse_amount(text, 2) == expected
-
-
-def test_parse_respects_decimal_places():
-    assert parse_amount("¥1200", 0) == 1200
-    assert parse_amount("1200", 0) == 1200
+    assert parse_amount(text) == expected
 
 
 @pytest.mark.parametrize(
@@ -34,25 +29,15 @@ def test_parse_respects_decimal_places():
 )
 def test_parse_rejects_invalid(text):
     with pytest.raises(AmountError):
-        parse_amount(text, 2)
+        parse_amount(text)
 
 
 def test_parse_rejects_over_precision():
     with pytest.raises(AmountError):
-        parse_amount("12.505", 2)
-    with pytest.raises(AmountError):
-        parse_amount("1200.5", 0)
-
-
-def test_parse_rejects_bad_decimal_places():
-    with pytest.raises(AmountError):
-        parse_amount("10", 5)
-    with pytest.raises(AmountError):
-        parse_amount("10", -1)
+        parse_amount("12.505")
 
 
 def test_format():
-    assert format_amount(1250, "$", 2) == "$12.50"
-    assert format_amount(123456, "$", 2) == "$1,234.56"
-    assert format_amount(1200, "¥", 0) == "¥1,200"
-    assert format_amount(-1200, "$", 2) == "-$12.00"
+    assert format_amount(1250, "$") == "$12.50"
+    assert format_amount(123456, "$") == "$1,234.56"
+    assert format_amount(-1200, "$") == "-$12.00"
