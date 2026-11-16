@@ -71,7 +71,7 @@ class CheckDuplicateRule(IntegrityCheck):
 INTEGRITY_CHECKS: List[Type[IntegrityCheck]] = [CheckDuplicateRule]
 
 
-def run_checks(conn: sqlite3.Connection, tx: Transaction) -> List[Flag]:
+def _run_checks(conn: sqlite3.Connection, tx: Transaction) -> List[Flag]:
     """Run every registered integrity check against one transaction."""
     flags: List[Flag] = []
     for check_class in INTEGRITY_CHECKS:

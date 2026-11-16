@@ -32,9 +32,9 @@ for usage of any command; every command also supports `--help`.
 | Command | What it does |
 |---|---|
 | `pft` | First run triggers setup; afterwards prints the command list |
-| `pft init [--csv FILE]` | Re-run setup (existing values become defaults); optionally seed a CSV |
+| `pft init [--csv FILE]` | Re-run setup (existing values become defaults; `decimal_places` is fixed at setup and not re-prompted); optionally seed a CSV |
 | `pft config show` | Print the configuration as JSON |
-| `pft config set KEY VALUE` | Change a setting: `db_path`, `currency`, `currency_symbol`, `decimal_places` (0–4), `date_format`, `default_categories` |
+| `pft config set KEY VALUE` | Change a setting: `db_path`, `currency`, `currency_symbol`, `decimal_places` (fixed at setup — later changes are refused), `date_format`, `default_categories` |
 | `pft add [--kind income\|expense] [--amount A] [--merchant M] [--category C] [--date YYYY-MM-DD]` | Record one transaction; missing kind/amount/merchant are prompted for |
 | `pft import FILE` | Bulk import from CSV (see below) |
 | `pft list [--from D] [--to D] [--category C] [--uncategorized]` | List transactions, newest first |
@@ -142,9 +142,9 @@ a row must never hide a double entry.
   currency conversion.
 - Amounts are stored as integer minor units; input like `"$12.50"`, `"12.5"` and
   `"1,234.56"` is accepted, values with more than the configured decimal places
-  are rejected, and amounts must be positive. Changing `decimal_places` is
-  refused while transactions exist, because stored amounts are minor units and
-  would be reinterpreted.
+  are rejected, and amounts must be positive. `decimal_places` is fixed at
+  first setup and cannot be changed afterwards: stored amounts are minor units
+  and would be reinterpreted.
 - Dates are `YYYY-MM-DD`; `add` defaults to today. The config `date_format` only
   affects display.
 - Categories are seeded from config and extensible; an unknown category is a
@@ -157,7 +157,7 @@ a row must never hide a double entry.
 
 ```
 pft/
-├── models/     domain data and config: Kind, Amount, Transaction, Category, Rule, Flag, Config
+├── models/     domain data and config: Kind, Amount, Transaction, Category, Rule, Flag, Config, summary and filter types
 ├── storage/    SQLite schema (storage/db.py) and repository: all transaction/category SQL (storage/repository.py)
 ├── services/   logic: rules (ast evaluator), integrity, flags, prompting, importer, summary, init wizard
 └── cli/        argparse command tree (cli/cli.py)
@@ -179,7 +179,7 @@ user data. Set `PFT_HOME=/some/dir` to use an isolated config/database directory
 python3 -m pytest tests/ -v
 ```
 
-129 tests: amount parsing/formatting, config validation (including the shipped
+133 tests: amount parsing/formatting, config validation (including the shipped
 rule), repository behaviour
 (including edit and delete), CSV import (idempotency, all-or-nothing errors,
 duplicate preservation), summary aggregation and filters, safe expression

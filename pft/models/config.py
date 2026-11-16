@@ -38,6 +38,9 @@ DEFAULT_RULES = [
     ),
 ]
 
+# Keys fixed at setup: changing them would reinterpret already-stored data.
+IMMUTABLE_KEYS = frozenset({"decimal_places"})
+
 
 def config_dir() -> Path:
     """Directory holding config.json and, by default, the database."""
@@ -119,6 +122,17 @@ class Config:
             "default_categories": list(self.default_categories),
             "rules": [rule.to_dict() for rule in self.rules],
         }
+
+    def set_value(self, key: str, value: Any) -> None:
+        """Set a config value; immutable keys accept only their current value."""
+        if key in IMMUTABLE_KEYS:
+            if value != getattr(self, key):
+                raise ConfigError(
+                    f"{key} is fixed at setup and cannot be changed: stored amounts "
+                    f"are in minor units and would be reinterpreted"
+                )
+            return
+        setattr(self, key, value)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Config":

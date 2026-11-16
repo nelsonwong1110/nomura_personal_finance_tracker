@@ -28,8 +28,10 @@ from pft.models.config import (
 )
 from pft.models.dates import format_date, today_iso, validate_iso_date
 from pft.models.flag import Flag
+from pft.models.filters import TransactionFilter
 from pft.models.kind import Kind
 from pft.models.rule import Rule
+from pft.models.summary import CategoryTotal
 from pft.models.transaction import Transaction
 from pft.services import rules
 from pft.services import summary as summary_service
@@ -134,7 +136,9 @@ def _confirm_flagged(flags: List[Flag], tx: Transaction, prompt: str) -> bool:
     return confirm(prompt)
 
 
-def _print_category_table(title: str, amount_header: str, items: list, cfg: Config) -> None:
+def _print_category_table(
+    title: str, amount_header: str, items: List[CategoryTotal], cfg: Config
+) -> None:
     print()
     print(title)
     _print_table(
@@ -143,12 +147,15 @@ def _print_category_table(title: str, amount_header: str, items: list, cfg: Conf
     )
 
 
-def _date_range(args) -> Tuple[Optional[str], Optional[str]]:
+def _transaction_filter(args, uncategorized: bool = False) -> TransactionFilter:
     if args.date_to and not args.date_from:
         args._parser.error("--to requires --from")
-    date_from = validate_iso_date(args.date_from) if args.date_from else None
-    date_to = validate_iso_date(args.date_to) if args.date_to else None
-    return date_from, date_to
+    return TransactionFilter(
+        date_from=validate_iso_date(args.date_from) if args.date_from else None,
+        date_to=validate_iso_date(args.date_to) if args.date_to else None,
+        category=args.category,
+        uncategorized=uncategorized,
+    )
 
 
 def _build_transaction(
@@ -189,33 +196,10 @@ def cmd_config_show(args) -> int:
     return 0
 
 
-def _guard_decimal_places_change(
-    cfg: Config, new_value: int, db_override: Optional[str] = None
-) -> None:
-    """Refuse to reinterpret stored minor units by changing decimal places."""
-    if new_value == cfg.decimal_places:
-        return
-    db_path = db_override or cfg.resolved_db_path
-    conn = db.connect(db_path, cfg.default_categories)
-    try:
-        existing = repository.count_transactions(conn)
-    finally:
-        conn.close()
-    if existing:
-        raise ConfigError(
-            f"cannot change decimal_places from {cfg.decimal_places} to {new_value} "
-            f"while {existing} transaction(s) exist: stored amounts are in minor "
-            f"units and would be reinterpreted. Keep the current value, or switch "
-            f"to a fresh database first (pft config set db_path PATH)."
-        )
-
-
 def cmd_config_set(args) -> int:
     cfg = _ensure_config()
     value = coerce_setting(args.key, args.value)
-    if args.key == "decimal_places":
-        _guard_decimal_places_change(cfg, value, getattr(args, "db", None))
-    setattr(cfg, args.key, value)
+    cfg.set_value(args.key, value)
     save_config(cfg)
     shown = value if not isinstance(value, list) else ", ".join(value)
     print(f"{args.key} = {shown}")
@@ -287,14 +271,8 @@ def cmd_import(args) -> int:
 def cmd_list(args) -> int:
     cfg, conn = _open(args)
     try:
-        date_from, date_to = _date_range(args)
-        txs = repository.list_transactions(
-            conn,
-            date_from=date_from,
-            date_to=date_to,
-            category=args.category,
-            uncategorized=args.uncategorized,
-        )
+        filters = _transaction_filter(args, uncategorized=args.uncategorized)
+        txs = repository.list_transactions(conn, filters)
         if not txs:
             print("No transactions found.")
             return 0
@@ -364,15 +342,7 @@ def cmd_edit(args) -> int:
             print("Aborted — nothing was changed.")
             return 1
 
-        updated = repository.edit_transaction(
-            conn,
-            current.id,
-            kind=kind,
-            amount_cents=amount_cents,
-            date=date,
-            merchant=merchant,
-            category=category,
-        )
+        updated = repository.edit_transaction(conn, candidate)
         print(f"Updated transaction #{updated.id}.")
         return 0
     finally:
@@ -463,17 +433,15 @@ def cmd_rule_remove(args) -> int:
 def cmd_summary(args) -> int:
     cfg, conn = _open(args)
     try:
-        date_from, date_to = _date_range(args)
-        result = summary_service.build_summary(
-            conn, date_from=date_from, date_to=date_to, category=args.category
-        )
-        if date_from or date_to or args.category:
+        filters = _transaction_filter(args)
+        result = summary_service.build_summary(conn, filters)
+        if filters.date_from or filters.date_to or filters.category:
             scope = " ".join(
                 part
                 for part in (
-                    f"from {date_from}" if date_from else "",
-                    f"to {date_to}" if date_to else "",
-                    f"category {args.category!r}" if args.category else "",
+                    f"from {filters.date_from}" if filters.date_from else "",
+                    f"to {filters.date_to}" if filters.date_to else "",
+                    f"category {filters.category!r}" if filters.category else "",
                 )
                 if part
             )

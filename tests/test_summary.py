@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pft.models.filters import TransactionFilter
 from pft.models.kind import Kind
 from pft.models.transaction import Transaction
 from pft.services.summary import build_summary
@@ -71,14 +72,16 @@ def test_monthly_trend_ascending(conn):
 
 def test_date_range_filter(conn):
     seed(conn)
-    result = build_summary(conn, date_from="2026-10-01", date_to="2026-10-31")
+    result = build_summary(
+        conn, TransactionFilter(date_from="2026-10-01", date_to="2026-10-31")
+    )
     assert result.transaction_count == 4
     assert result.total_spend_cents == 4250 + 4000 + 1575
 
 
 def test_category_filter(conn):
     seed(conn)
-    result = build_summary(conn, category="dining")
+    result = build_summary(conn, TransactionFilter(category="dining"))
     assert result.transaction_count == 1
     assert result.total_spend_cents == 1575
     assert result.total_income_cents == 0

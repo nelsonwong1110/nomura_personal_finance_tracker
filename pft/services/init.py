@@ -21,29 +21,36 @@ def run_init(
     out: Callable[[str], None] = print,
     ask_seed: bool = True,
 ) -> Config:
-    """Run the setup wizard. Existing config values (if any) are the defaults."""
+    """Run the setup wizard. Existing config values (if any) are the defaults.
+
+    decimal_places is fixed at setup: re-runs report it instead of prompting.
+    """
     ask = ask or prompt_ask
     target = config_path()
-    existing = load_config(target) or Config()
+    loaded = load_config(target)
+    existing = loaded or Config()
 
     out("Personal Finance Tracker — setup")
     out("Press Enter to accept the value in brackets.")
     db_path = ask("Database path", existing.db_path)
     currency = ask("Currency code", existing.currency)
     symbol = ask("Currency symbol", existing.currency_symbol)
-    decimals_raw = ask("Decimal places (0-4)", str(existing.decimal_places))
+    if loaded is not None:
+        decimals = existing.decimal_places
+        out(f"Decimal places (fixed at setup): {decimals}")
+    else:
+        decimals_raw = ask("Decimal places (0-4)", str(existing.decimal_places))
+        try:
+            decimals = int(decimals_raw)
+        except ValueError:
+            raise ConfigError(
+                f"decimal places must be an integer, got {decimals_raw!r}"
+            ) from None
     date_format = ask("Date display format", existing.date_format)
     categories_raw = ask(
         "Default categories (comma-separated)", ",".join(existing.default_categories)
     )
     seed_csv = ask("Seed CSV to import (blank to skip)", "") if ask_seed else ""
-
-    try:
-        decimals = int(decimals_raw)
-    except ValueError:
-        raise ConfigError(
-            f"decimal places must be an integer, got {decimals_raw!r}"
-        ) from None
 
     cfg = Config.from_dict(
         {

@@ -60,6 +60,24 @@ def test_config_set_db_path_survives_save(cfg):
     assert load_config().db_path == "/tmp/elsewhere.db"
 
 
+def test_set_value_updates_ordinary_keys():
+    config = Config()
+    config.set_value("currency", "eur")
+    assert config.currency == "eur"
+
+
+def test_set_value_same_decimal_places_is_noop():
+    config = Config()
+    config.set_value("decimal_places", 2)
+    assert config.decimal_places == 2
+
+
+def test_set_value_refuses_decimal_places_change():
+    config = Config()
+    with pytest.raises(ConfigError, match="fixed at setup"):
+        config.set_value("decimal_places", 3)
+
+
 def test_default_config_ships_one_rule():
     config = Config()
     assert len(config.rules) == 1

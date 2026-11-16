@@ -6,7 +6,9 @@ from pft.models.dates import format_date, today_iso, validate_iso_date
 from pft.models.transaction import Transaction
 from pft.models.category import DEFAULT_CATEGORY, Category
 from pft.models.flag import Flag
+from pft.models.filters import TransactionFilter
 from pft.models.rule import Rule
+from pft.models.summary import CategoryTotal, MonthTotal, Summary, Totals
 from pft.models.config import Config, load_config, save_config
 
 __all__ = [
@@ -20,7 +22,12 @@ __all__ = [
     "Category",
     "DEFAULT_CATEGORY",
     "Flag",
+    "TransactionFilter",
     "Rule",
+    "CategoryTotal",
+    "MonthTotal",
+    "Totals",
+    "Summary",
     "Config",
     "load_config",
     "save_config",

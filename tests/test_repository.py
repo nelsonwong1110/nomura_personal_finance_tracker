@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from pft.errors import NotFoundError, UnknownCategoryError
+from pft.models.filters import TransactionFilter
 from pft.models.kind import Kind
 from pft.storage import repository
 
@@ -68,12 +71,16 @@ def test_list_filters(conn, make_tx):
     repository.add_transaction(conn, make_tx(date="2026-11-01", category="uncategorized"))
 
     in_range = repository.list_transactions(
-        conn, date_from="2026-10-01", date_to="2026-10-31"
+        conn, TransactionFilter(date_from="2026-10-01", date_to="2026-10-31")
     )
     assert len(in_range) == 2
-    only_dining = repository.list_transactions(conn, category="dining")
+    only_dining = repository.list_transactions(
+        conn, TransactionFilter(category="dining")
+    )
     assert [t.category for t in only_dining] == ["dining"]
-    uncategorized = repository.list_transactions(conn, uncategorized=True)
+    uncategorized = repository.list_transactions(
+        conn, TransactionFilter(uncategorized=True)
+    )
     assert len(uncategorized) == 1
 
 
@@ -99,35 +106,39 @@ def test_list_categories_in_seed_order(conn):
 
 def test_edit_transaction(conn, make_tx):
     tx_id = repository.add_transaction(conn, make_tx())
-    updated = repository.edit_transaction(
-        conn, tx_id, amount_cents=2000, merchant="BigBox", category="dining"
+    current = repository.get_transaction(conn, tx_id)
+    candidate = replace(
+        current, amount_cents=2000, merchant="BigBox", category="dining"
     )
+    updated = repository.edit_transaction(conn, candidate)
     assert updated.amount_cents == 2000
     assert updated.merchant == "BigBox"
     assert updated.category == "dining"
-    # Unspecified fields are unchanged.
+    # Fields carried forward in the candidate are unchanged.
     assert updated.kind == Kind.EXPENSE
     assert updated.date == "2026-10-02"
 
 
 def test_edit_preserves_provenance(conn, make_tx):
     tx_id = repository.add_transaction(conn, make_tx(source="/bank.csv", ref="abc"))
-    updated = repository.edit_transaction(conn, tx_id, merchant="BigBox")
+    current = repository.get_transaction(conn, tx_id)
+    updated = repository.edit_transaction(conn, replace(current, merchant="BigBox"))
     # Provenance survives the edit, so a re-import skips this row and cannot
     # resurrect the pre-edit content.
     assert updated.source == "/bank.csv"
     assert updated.ref == "abc"
 
 
-def test_edit_transaction_unknown_id(conn):
+def test_edit_transaction_unknown_id(conn, make_tx):
     with pytest.raises(NotFoundError):
-        repository.edit_transaction(conn, 999, merchant="X")
+        repository.edit_transaction(conn, make_tx(id=999))
 
 
 def test_edit_transaction_unknown_category(conn, make_tx):
     tx_id = repository.add_transaction(conn, make_tx())
+    current = repository.get_transaction(conn, tx_id)
     with pytest.raises(UnknownCategoryError):
-        repository.edit_transaction(conn, tx_id, category="groceris")
+        repository.edit_transaction(conn, replace(current, category="groceris"))
 
 
 def test_delete_transaction(conn, make_tx):

@@ -6,7 +6,7 @@ import pytest
 
 from pft.cli.cli import coerce_setting, main
 from pft.errors import ConfigError
-from pft.models.config import config_path
+from pft.models.config import config_path, load_config
 from pft.storage import db as db_module
 from pft.storage import repository
 
@@ -227,10 +227,7 @@ def test_config_show_and_set(cfg, capsys):
     assert "error:" in capsys.readouterr().err
 
 
-def test_decimal_places_change_refused_with_existing_data(cfg, capsys):
-    assert main(add_args()) == 0
-    capsys.readouterr()
-
+def test_decimal_places_change_always_refused(cfg, capsys):
     assert main(["config", "set", "decimal_places", "0"]) == 2
     err = capsys.readouterr().err
     assert "reinterpreted" in err
@@ -240,9 +237,26 @@ def test_decimal_places_change_refused_with_existing_data(cfg, capsys):
     assert '"decimal_places": 2' in capsys.readouterr().out
 
 
-def test_decimal_places_change_allowed_on_empty_db(cfg, capsys):
-    assert main(["config", "set", "decimal_places", "0"]) == 0
-    assert "decimal_places = 0" in capsys.readouterr().out
+def test_decimal_places_same_value_is_noop(cfg, capsys):
+    assert main(["config", "set", "decimal_places", "2"]) == 0
+    assert "decimal_places = 2" in capsys.readouterr().out
+
+
+def test_init_rerun_keeps_decimal_places(pft_home, monkeypatch, capsys):
+    attempts = {"n": 0}
+
+    def fake_input(prompt=""):
+        if "Decimal places" in prompt:
+            attempts["n"] += 1
+            return "3" if attempts["n"] == 1 else "0"
+        return ""
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    assert main(["init"]) == 0
+    assert main(["init"]) == 0
+    out = capsys.readouterr().out
+    assert "Decimal places (fixed at setup): 3" in out
+    assert load_config().decimal_places == 3
 
 
 def test_help_commands(capsys):
@@ -274,6 +288,11 @@ def test_group_without_subcommand_prints_its_help(cfg, capsys):
 def test_edit_transaction(cfg, capsys):
     assert main(add_args()) == 0  # #1: $12.50 FreshMart groceries
     capsys.readouterr()
+    conn = open_conn(cfg)
+    try:
+        before = repository.get_transaction(conn, 1)
+    finally:
+        conn.close()
 
     assert main(
         ["edit", "1", "--amount", "15.75", "--merchant", "Taco Casa", "--category", "dining"]
@@ -285,6 +304,15 @@ def test_edit_transaction(cfg, capsys):
     assert "Taco Casa" in out
     assert "$15.75" in out
     assert "FreshMart" not in out
+
+    # Fields not passed to edit are carried forward unchanged.
+    conn = open_conn(cfg)
+    try:
+        after = repository.get_transaction(conn, 1)
+    finally:
+        conn.close()
+    assert after.kind == before.kind
+    assert after.date == before.date
 
 
 def test_edit_requires_at_least_one_field(cfg, capsys):

@@ -230,7 +230,7 @@ def validate_rules(rules_to_check: List[Rule]) -> None:
             ) from None
 
 
-def run_rules(rules_to_run: List[Rule], tx: Transaction, cfg: Config) -> List[Flag]:
+def _run_rules(rules_to_run: List[Rule], tx: Transaction, cfg: Config) -> List[Flag]:
     """Evaluate all rules for one transaction; return a Flag per match.
 
     A rule that cannot be evaluated against this particular row (e.g. a type

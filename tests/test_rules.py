@@ -113,7 +113,7 @@ def test_run_rules_emits_flag_on_match(make_tx, cfg):
         description="Big grocery",
         expression="amount >= 12 and category == 'groceries'",
     )
-    flags = rules.run_rules([rule], make_tx(id=7), cfg)
+    flags = rules._run_rules([rule], make_tx(id=7), cfg)
     assert len(flags) == 1
     assert flags[0].source == "rule:1"
     assert flags[0].transaction_ids == [7]
@@ -122,12 +122,12 @@ def test_run_rules_emits_flag_on_match(make_tx, cfg):
 
 def test_run_rules_no_flag_when_no_match(make_tx, cfg):
     rule = Rule(id="1", description="Huge", expression="amount >= 1000")
-    assert rules.run_rules([rule], make_tx(), cfg) == []
+    assert rules._run_rules([rule], make_tx(), cfg) == []
 
 
 def test_run_rules_skips_rules_that_cannot_evaluate_this_row(make_tx, cfg):
     rule = Rule(id="1", description="Broken", expression="merchant > 5")
-    assert rules.run_rules([rule], make_tx(), cfg) == []
+    assert rules._run_rules([rule], make_tx(), cfg) == []
 
 
 def test_validate_rules_reports_rule_id():

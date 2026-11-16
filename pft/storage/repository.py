@@ -7,11 +7,13 @@ clean error (foreign keys are enforced), never a silently-created ghost.
 from __future__ import annotations
 
 import sqlite3
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from pft.errors import NotFoundError, UnknownCategoryError, ValidationError
 from pft.models.category import DEFAULT_CATEGORY, Category
+from pft.models.filters import TransactionFilter
 from pft.models.kind import Kind
+from pft.models.summary import CategoryTotal, MonthTotal, Totals
 from pft.models.transaction import Transaction
 
 _FROM = """
@@ -33,25 +35,20 @@ COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount_cents END), 0) AS spend
 """
 
 
-def _filters(
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    category: Optional[str] = None,
-    uncategorized: bool = False,
-) -> Tuple[str, List[object]]:
+def _where_clause(filters: TransactionFilter) -> Tuple[str, List[object]]:
     """Shared WHERE clause for transaction queries."""
     clauses: List[str] = []
     params: List[object] = []
-    if date_from:
+    if filters.date_from:
         clauses.append("t.date >= ?")
-        params.append(date_from)
-    if date_to:
+        params.append(filters.date_from)
+    if filters.date_to:
         clauses.append("t.date <= ?")
-        params.append(date_to)
-    if category:
+        params.append(filters.date_to)
+    if filters.category:
         clauses.append("c.name = ?")
-        params.append(category)
-    if uncategorized:
+        params.append(filters.category)
+    if filters.uncategorized:
         clauses.append("c.name = ?")
         params.append(DEFAULT_CATEGORY)
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
@@ -154,14 +151,10 @@ def get_transaction(conn: sqlite3.Connection, tx_id: int) -> Optional[Transactio
 
 
 def list_transactions(
-    conn: sqlite3.Connection,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    category: Optional[str] = None,
-    uncategorized: bool = False,
+    conn: sqlite3.Connection, filters: TransactionFilter = TransactionFilter()
 ) -> List[Transaction]:
     """List transactions, newest first (date desc, then entry order desc)."""
-    where, params = _filters(date_from, date_to, category, uncategorized)
+    where, params = _where_clause(filters)
     rows = conn.execute(
         _SELECT + where + " ORDER BY t.date DESC, t.id DESC", params
     ).fetchall()
@@ -188,55 +181,54 @@ def find_duplicate_ids(
 
 
 def summary_totals(
-    conn: sqlite3.Connection,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    category: Optional[str] = None,
-) -> Dict[str, int]:
+    conn: sqlite3.Connection, filters: TransactionFilter = TransactionFilter()
+) -> Totals:
     """Total income, spend and transaction count for the filtered scope."""
-    where, params = _filters(date_from, date_to, category)
+    where, params = _where_clause(filters)
     row = conn.execute(
         f"SELECT {_SELECT_KIND_SUMS}, COUNT(*) AS n " + _FROM + where,
         params,
     ).fetchone()
-    return {
-        "income": int(row["income"]),
-        "spend": int(row["spend"]),
-        "count": int(row["n"]),
-    }
+    return Totals(
+        income_cents=int(row["income"]),
+        spend_cents=int(row["spend"]),
+        transaction_count=int(row["n"]),
+    )
 
 
 def summary_by_category(
     conn: sqlite3.Connection,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    category: Optional[str] = None,
-) -> List[Tuple[str, str, int]]:
-    """(category name, kind, total) rows for the filtered scope, largest first."""
-    where, params = _filters(date_from, date_to, category)
+    filters: TransactionFilter = TransactionFilter(),
+    *,
+    kind: Kind,
+) -> List[CategoryTotal]:
+    """Category totals of one kind for the filtered scope, largest first."""
+    where, params = _where_clause(filters)
+    where += (" AND " if where else " WHERE ") + "t.kind = ?"
+    params.append(kind.value)
     rows = conn.execute(
         """
-        SELECT c.name AS name, t.kind AS kind, SUM(t.amount_cents) AS total
+        SELECT c.name AS name, SUM(t.amount_cents) AS total
         """
         + _FROM
         + where
         + """
-        GROUP BY c.name, t.kind
+        GROUP BY c.name
         ORDER BY total DESC, c.name ASC
         """,
         params,
     ).fetchall()
-    return [(row["name"], row["kind"], int(row["total"])) for row in rows]
+    return [
+        CategoryTotal(name=row["name"], total_cents=int(row["total"]))
+        for row in rows
+    ]
 
 
 def summary_monthly(
-    conn: sqlite3.Connection,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    category: Optional[str] = None,
-) -> List[Tuple[str, int, int]]:
-    """(month, income, spend) rows for the filtered scope, ascending by month."""
-    where, params = _filters(date_from, date_to, category)
+    conn: sqlite3.Connection, filters: TransactionFilter = TransactionFilter()
+) -> List[MonthTotal]:
+    """Month totals for the filtered scope, ascending by month."""
+    where, params = _where_clause(filters)
     rows = conn.execute(
         f"SELECT substr(t.date, 1, 7) AS month, {_SELECT_KIND_SUMS} "
         + _FROM
@@ -248,7 +240,12 @@ def summary_monthly(
         params,
     ).fetchall()
     return [
-        (row["month"], int(row["income"]), int(row["spend"])) for row in rows
+        MonthTotal(
+            month=row["month"],
+            income_cents=int(row["income"]),
+            spend_cents=int(row["spend"]),
+        )
+        for row in rows
     ]
 
 
@@ -271,32 +268,17 @@ def count_transactions(conn: sqlite3.Connection) -> int:
     return int(row["n"])
 
 
-def edit_transaction(
-    conn: sqlite3.Connection,
-    tx_id: int,
-    *,
-    kind: Optional[Kind] = None,
-    amount_cents: Optional[int] = None,
-    date: Optional[str] = None,
-    merchant: Optional[str] = None,
-    category: Optional[str] = None,
-) -> Transaction:
-    """Update fields of a transaction; fields left as None are unchanged.
+def edit_transaction(conn: sqlite3.Connection, tx: Transaction) -> Transaction:
+    """Overwrite kind, amount, date, merchant and category of stored row ``tx.id``.
 
-    Provenance is preserved, so a later re-import of the originating CSV skips
-    this row and cannot resurrect the pre-edit content.
+    Provenance is preserved: the UPDATE does not touch source/ref, so a later
+    re-import of the originating CSV skips this row and cannot resurrect the
+    pre-edit content.
     """
-    current = get_transaction(conn, tx_id)
-    if current is None:
-        raise NotFoundError(f"transaction #{tx_id} not found")
-
-    new_kind = kind or current.kind
-    new_amount = amount_cents if amount_cents is not None else current.amount_cents
-    new_date = date or current.date
-    new_merchant = merchant.strip() if merchant is not None else current.merchant
-    new_category = category or current.category
-    if not new_merchant:
-        raise ValidationError("merchant must not be empty")
+    if tx.id is None:
+        raise ValidationError("cannot edit an unsaved transaction")
+    if get_transaction(conn, tx.id) is None:
+        raise NotFoundError(f"transaction #{tx.id} not found")
 
     conn.execute(
         """
@@ -305,16 +287,16 @@ def edit_transaction(
         WHERE id = ?
         """,
         (
-            new_kind.value,
-            new_amount,
-            new_date,
-            new_merchant,
-            category_id(conn, new_category),
-            tx_id,
+            tx.kind.value,
+            tx.amount_cents,
+            tx.date,
+            tx.merchant.strip(),
+            category_id(conn, tx.category),
+            tx.id,
         ),
     )
     conn.commit()
-    updated = get_transaction(conn, tx_id)
+    updated = get_transaction(conn, tx.id)
     assert updated is not None
     return updated
 

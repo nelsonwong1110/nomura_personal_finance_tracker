@@ -59,9 +59,9 @@ Ingesting transactions from a CSV file; rows already ingested under the same pro
 _Avoid_: load, upload
 
 **Config**:
-User preferences (database path, currency, symbol, decimal places, date format, default categories, rules) stored as JSON in the config directory.
+User preferences (database path, currency, symbol, decimal places, date format, default categories, rules) stored as JSON in the config directory. `decimal_places` is fixed at setup: later changes are refused because stored minor units would be reinterpreted.
 _Avoid_: settings file
 
 **Init**:
-The guided first-run setup that writes the config, creates and seeds the database, and optionally imports a seed CSV.
+The guided first-run setup that writes the config, creates and seeds the database, and optionally imports a seed CSV. Re-runs reuse existing values as defaults and report `decimal_places` instead of re-prompting.
 _Avoid_: bootstrap, install
