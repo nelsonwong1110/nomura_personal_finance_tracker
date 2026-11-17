@@ -102,9 +102,7 @@ def test_type_mismatch_rejected_at_rule_add(cfg):
 
 
 def test_good_expression_passes_rule_add_validation(cfg):
-    rules.validate_rule_expression(
-        "amount >= 1000 and category == 'groceries'", cfg
-    )
+    rules.validate_rule_expression("amount >= 1000 and category == 'groceries'", cfg)
 
 
 def test_run_rules_emits_flag_on_match(make_tx, cfg):

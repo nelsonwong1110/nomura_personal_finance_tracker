@@ -19,12 +19,8 @@ def build_summary(
 ) -> Summary:
     """Aggregate totals, category breakdowns and month-over-month spend."""
     totals = repository.summary_totals(conn, filters)
-    spend_by_category = repository.summary_by_category(
-        conn, filters, kind=Kind.EXPENSE
-    )
-    income_by_category = repository.summary_by_category(
-        conn, filters, kind=Kind.INCOME
-    )
+    spend_by_category = repository.summary_by_category(conn, filters, kind=Kind.EXPENSE)
+    income_by_category = repository.summary_by_category(conn, filters, kind=Kind.INCOME)
     monthly = repository.summary_monthly(conn, filters)
     return Summary(
         total_income_cents=totals.income_cents,

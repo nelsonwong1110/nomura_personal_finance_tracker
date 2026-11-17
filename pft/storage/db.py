@@ -33,7 +33,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_provenance
 """
 
 
-def connect(path: str, categories: Optional[Iterable[str]] = None) -> sqlite3.Connection:
+def connect(
+    path: str, categories: Optional[Iterable[str]] = None
+) -> sqlite3.Connection:
     """Open (and if necessary create) the database, seeding categories.
 
     ``categories`` are inserted if missing; existing data is never modified.

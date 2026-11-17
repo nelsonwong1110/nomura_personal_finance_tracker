@@ -71,9 +71,7 @@ def _row_to_transaction(row: sqlite3.Row) -> Transaction:
 
 def category_id(conn: sqlite3.Connection, name: str) -> int:
     """Resolve a category name to its id, or raise UnknownCategoryError."""
-    row = conn.execute(
-        "SELECT id FROM categories WHERE name = ?", (name,)
-    ).fetchone()
+    row = conn.execute("SELECT id FROM categories WHERE name = ?", (name,)).fetchone()
     if row is None:
         raise UnknownCategoryError(
             f"unknown category {name!r}; add it first with: pft category add {name!r}"
@@ -105,7 +103,9 @@ def list_categories(conn: sqlite3.Connection) -> List[Category]:
     return [Category(id=row["id"], name=row["name"]) for row in rows]
 
 
-def add_transaction(conn: sqlite3.Connection, tx: Transaction, commit: bool = True) -> int:
+def add_transaction(
+    conn: sqlite3.Connection, tx: Transaction, commit: bool = True
+) -> int:
     """Insert a transaction. Raises UnknownCategoryError for an unknown category."""
     cid = category_id(conn, tx.category)
     cursor = conn.execute(
@@ -129,7 +129,9 @@ def add_transaction(conn: sqlite3.Connection, tx: Transaction, commit: bool = Tr
     return int(cursor.lastrowid)
 
 
-def add_if_new(conn: sqlite3.Connection, tx: Transaction, commit: bool = True) -> Optional[int]:
+def add_if_new(
+    conn: sqlite3.Connection, tx: Transaction, commit: bool = True
+) -> Optional[int]:
     """Insert unless this exact provenance (source, ref) was already ingested.
 
     Content-identical rows with different provenance are inserted: two genuine
@@ -219,8 +221,7 @@ def summary_by_category(
         params,
     ).fetchall()
     return [
-        CategoryTotal(name=row["name"], total_cents=int(row["total"]))
-        for row in rows
+        CategoryTotal(name=row["name"], total_cents=int(row["total"])) for row in rows
     ]
 
 
@@ -254,9 +255,7 @@ def categorize(conn: sqlite3.Connection, tx_id: int, category: str) -> Transacti
     if get_transaction(conn, tx_id) is None:
         raise NotFoundError(f"transaction #{tx_id} not found")
     cid = category_id(conn, category)
-    conn.execute(
-        "UPDATE transactions SET category_id = ? WHERE id = ?", (cid, tx_id)
-    )
+    conn.execute("UPDATE transactions SET category_id = ? WHERE id = ?", (cid, tx_id))
     conn.commit()
     updated = get_transaction(conn, tx_id)
     assert updated is not None

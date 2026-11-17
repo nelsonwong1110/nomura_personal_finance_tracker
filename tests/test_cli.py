@@ -96,7 +96,9 @@ def test_rule_flag_prompts_on_add(cfg, monkeypatch, capsys):
 
 
 def test_rule_add_rejects_unsafe_expression(cfg, capsys):
-    code = main(["rule", "add", "__import__('os').system('echo hi')", "--description", "x"])
+    code = main(
+        ["rule", "add", "__import__('os').system('echo hi')", "--description", "x"]
+    )
     assert code == 2
     assert "error:" in capsys.readouterr().err
 
@@ -263,9 +265,21 @@ def test_edit_transaction(cfg, capsys):
     finally:
         conn.close()
 
-    assert main(
-        ["edit", "1", "--amount", "15.75", "--merchant", "Taco Casa", "--category", "dining"]
-    ) == 0
+    assert (
+        main(
+            [
+                "edit",
+                "1",
+                "--amount",
+                "15.75",
+                "--merchant",
+                "Taco Casa",
+                "--category",
+                "dining",
+            ]
+        )
+        == 0
+    )
     assert "Updated transaction #1" in capsys.readouterr().out
 
     assert main(["list"]) == 0
@@ -294,7 +308,7 @@ def test_edit_requires_at_least_one_field(cfg, capsys):
 
 def test_edit_duplicate_prompt_abort_keeps_original(cfg, monkeypatch, capsys):
     assert main(add_args("--merchant", "Alpha")) == 0  # #1
-    assert main(add_args("--merchant", "Beta")) == 0   # #2
+    assert main(add_args("--merchant", "Beta")) == 0  # #2
     capsys.readouterr()
 
     monkeypatch.setattr("builtins.input", lambda prompt="": "n")

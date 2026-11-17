@@ -135,7 +135,9 @@ def import_csv(conn: sqlite3.Connection, path: str, cfg: Config) -> ImportResult
                 f"CSV missing required column(s): {', '.join(missing)} "
                 f"(found: {', '.join(header)})"
             )
-        index = {name: normalized.index(name) for name in KNOWN_COLUMNS if name in normalized}
+        index = {
+            name: normalized.index(name) for name in KNOWN_COLUMNS if name in normalized
+        }
 
         occurrences: Dict[str, int] = {}
         staged: List[Transaction] = []

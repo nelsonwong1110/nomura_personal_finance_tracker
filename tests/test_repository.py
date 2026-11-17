@@ -68,7 +68,9 @@ def test_list_orders_by_date_then_entry_order(conn, make_tx):
 def test_list_filters(conn, make_tx):
     repository.add_transaction(conn, make_tx(date="2026-10-01", category="groceries"))
     repository.add_transaction(conn, make_tx(date="2026-10-05", category="dining"))
-    repository.add_transaction(conn, make_tx(date="2026-11-01", category="uncategorized"))
+    repository.add_transaction(
+        conn, make_tx(date="2026-11-01", category="uncategorized")
+    )
 
     in_range = repository.list_transactions(
         conn, TransactionFilter(date_from="2026-10-01", date_to="2026-10-31")

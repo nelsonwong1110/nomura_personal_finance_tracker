@@ -56,8 +56,7 @@ class CheckDuplicateRule(IntegrityCheck):
             )
         else:
             message = (
-                f"duplicate group {id_list} — "
-                f"same kind, amount, date and merchant"
+                f"duplicate group {id_list} — " f"same kind, amount, date and merchant"
             )
         return [
             Flag(

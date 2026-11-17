@@ -107,7 +107,8 @@ def _fmt(cfg: Config, cents: int) -> str:
 
 def _print_table(headers: List[str], rows: List[List[str]]) -> None:
     widths = [
-        max(len(headers[i]), *(len(row[i]) for row in rows)) for i in range(len(headers))
+        max(len(headers[i]), *(len(row[i]) for row in rows))
+        for i in range(len(headers))
     ]
     print("  ".join(header.ljust(widths[i]) for i, header in enumerate(headers)))
     print("  ".join("-" * width for width in widths))
@@ -202,7 +203,11 @@ def cmd_config_set(args) -> int:
 def cmd_add(args) -> int:
     cfg, conn = _open(args)
     try:
-        kind_raw = args.kind if args.kind is not None else ask("Kind (income/expense)", "expense")
+        kind_raw = (
+            args.kind
+            if args.kind is not None
+            else ask("Kind (income/expense)", "expense")
+        )
         kind = Kind.parse(kind_raw)
         amount_raw = args.amount if args.amount is not None else ask("Amount")
         merchant_raw = args.merchant if args.merchant is not None else ask("Merchant")
@@ -329,7 +334,9 @@ def cmd_edit(args) -> int:
             category=category,
         )
         flags = collect_flags(conn, cfg, candidate)
-        if flags and not _confirm_flagged(flags, candidate, "Save changes anyway? [y/N]"):
+        if flags and not _confirm_flagged(
+            flags, candidate, "Save changes anyway? [y/N]"
+        ):
             print("Aborted — nothing was changed.")
             return 1
 
@@ -392,7 +399,9 @@ def cmd_rule_add(args) -> int:
     next_id = 1
     while str(next_id) in existing_ids:
         next_id += 1
-    rule = Rule(id=str(next_id), description=args.description, expression=args.expression)
+    rule = Rule(
+        id=str(next_id), description=args.description, expression=args.expression
+    )
     cfg.rules.append(rule)
     save_config(cfg)
     print(f"Added rule {rule.id}: {rule.description} — {rule.expression}")
@@ -402,7 +411,9 @@ def cmd_rule_add(args) -> int:
 def cmd_rule_list(args) -> int:
     cfg = _ensure_config()
     if not cfg.rules:
-        print("No rules configured. Add one with: pft rule add \"amount >= 1000\" --description \"...\"")
+        print(
+            'No rules configured. Add one with: pft rule add "amount >= 1000" --description "..."'
+        )
         return 0
     headers = ["ID", "DESCRIPTION", "EXPRESSION"]
     rows = [[rule.id, rule.description, rule.expression] for rule in cfg.rules]
@@ -443,9 +454,13 @@ def cmd_summary(args) -> int:
         print(f"Net:    {_fmt(cfg, result.net_cents)}")
 
         if result.spend_by_category:
-            _print_category_table("Spend by category:", "SPEND", result.spend_by_category, cfg)
+            _print_category_table(
+                "Spend by category:", "SPEND", result.spend_by_category, cfg
+            )
         if result.income_by_category:
-            _print_category_table("Income by category:", "INCOME", result.income_by_category, cfg)
+            _print_category_table(
+                "Income by category:", "INCOME", result.income_by_category, cfg
+            )
         if result.monthly:
             print()
             print("Monthly:")
@@ -470,7 +485,9 @@ def cmd_summary(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def build_parser() -> Tuple[argparse.ArgumentParser, Dict[str, argparse.ArgumentParser]]:
+def build_parser() -> (
+    Tuple[argparse.ArgumentParser, Dict[str, argparse.ArgumentParser]]
+):
     parser = argparse.ArgumentParser(
         prog=PROG,
         description="Personal Finance Tracker — track personal income and expenses.",
@@ -543,7 +560,9 @@ def build_parser() -> Tuple[argparse.ArgumentParser, Dict[str, argparse.Argument
     p = add("rule", "manage flag-only rules")
     rsub = p.add_subparsers(dest="rule_command", metavar="<add|list|remove>")
     cp = rsub.add_parser("add", help="add a rule")
-    cp.add_argument("expression", help="e.g. \"amount >= 1000 and category == 'groceries'\"")
+    cp.add_argument(
+        "expression", help="e.g. \"amount >= 1000 and category == 'groceries'\""
+    )
     cp.add_argument("--description", required=True, help="human-readable description")
     cp.set_defaults(handler=cmd_rule_add, _parser=cp)
     cp = rsub.add_parser("list", help="list rules")

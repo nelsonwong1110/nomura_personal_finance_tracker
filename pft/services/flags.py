@@ -12,8 +12,6 @@ from pft.services.integrity import _run_checks
 from pft.services.rules import _run_rules
 
 
-def collect_flags(
-    conn: sqlite3.Connection, cfg: Config, tx: Transaction
-) -> List[Flag]:
+def collect_flags(conn: sqlite3.Connection, cfg: Config, tx: Transaction) -> List[Flag]:
     """All flags for one transaction: integrity checks and field rules."""
     return _run_checks(conn, tx) + _run_rules(cfg.rules, tx, cfg)

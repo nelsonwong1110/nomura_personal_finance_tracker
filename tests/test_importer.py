@@ -75,8 +75,12 @@ def test_same_basename_in_different_directories_do_not_collide(tmp_path, conn, c
     jan.parent.mkdir()
     feb.parent.mkdir()
     shared = "expense,10.00,2026-01-02,Alpha,dining\n"
-    jan.write_text(HEADER + shared + "expense,5.00,2026-01-03,Beta,dining\n", encoding="utf-8")
-    feb.write_text(HEADER + shared + "expense,7.00,2026-01-04,Gamma,dining\n", encoding="utf-8")
+    jan.write_text(
+        HEADER + shared + "expense,5.00,2026-01-03,Beta,dining\n", encoding="utf-8"
+    )
+    feb.write_text(
+        HEADER + shared + "expense,7.00,2026-01-04,Gamma,dining\n", encoding="utf-8"
+    )
 
     assert import_csv(conn, str(jan), cfg).imported == 2
     result = import_csv(conn, str(feb), cfg)
@@ -121,7 +125,9 @@ def test_blank_lines_are_skipped(write_csv, conn, cfg):
 
 
 def test_category_column_optional(write_csv, conn, cfg):
-    path = write_csv("bank.csv", "kind,amount,date,merchant\n" + "expense,5.00,2026-10-01,Kiosk\n")
+    path = write_csv(
+        "bank.csv", "kind,amount,date,merchant\n" + "expense,5.00,2026-10-01,Kiosk\n"
+    )
     result = import_csv(conn, path, cfg)
     assert result.imported == 1
     tx = repository.get_transaction(conn, result.transaction_ids[0])

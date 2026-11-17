@@ -32,7 +32,9 @@ class Rule:
     def from_dict(cls, data: Any) -> "Rule":
         if not isinstance(data, dict):
             raise ConfigError(f"rule must be an object, got {type(data).__name__}")
-        missing = [key for key in ("id", "description", "expression") if key not in data]
+        missing = [
+            key for key in ("id", "description", "expression") if key not in data
+        ]
         if missing:
             raise ConfigError(f"rule is missing field(s): {', '.join(missing)}")
         return cls(
